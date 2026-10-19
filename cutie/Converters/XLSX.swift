@@ -218,6 +218,7 @@ nonisolated enum XLSX {
                                      kind: date.hasTime ? .dateTime : .date, formatCode: code)
             default:
                 guard !value.isEmpty, var number = Double(value) else { return .empty }
+                guard number.isFinite else { return Workbook.Cell(text: "#NUM!") }
                 let format = styles.format(style)
                 let kind = format.kind
                 if kind == .text { return Workbook.Cell(text: SpreadsheetNumber.general(number)) }

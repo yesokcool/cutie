@@ -15,7 +15,9 @@ enum DocumentReader {
         case "txt", "text":
             return plain(try readText(url))
         case "html", "htm":
-            return try fromHTML(try readText(url), baseURL: url.deletingLastPathComponent())
+            // The page's own <meta charset> decides its encoding; the text then goes on as UTF-8.
+            let html = try TextDecoding.decodeHTML(Data(contentsOf: url))
+            return try fromHTML(html, baseURL: url.deletingLastPathComponent())
         case "docx", "doc", "rtf", "rtfd", "odt", "webarchive":
             return try NSAttributedString(url: url, options: [.documentType: documentType(for: ext)], documentAttributes: nil)
         case "textclipping":

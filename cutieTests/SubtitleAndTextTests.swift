@@ -11,6 +11,22 @@ struct SubtitleAndTextTests {
         return try String(contentsOf: output, encoding: .utf8)
     }
 
+    @Test func htmlUsesTheCharsetItDeclares() async throws {
+        let fixtures = try Fixtures(); defer { fixtures.remove() }
+        let russian = #"<html><head><meta charset="windows-1251"><title>t</title></head><body><p>Привет, мир</p></body></html>"#
+        let ru = fixtures.url("ru.html")
+        try russian.data(using: .windowsCP1251)!.write(to: ru)
+        #expect(try await convert(ru, to: .txt, fixtures).contains("Привет, мир"))
+
+        let japanese = #"<html><head><meta http-equiv="Content-Type" content="text/html; charset=Shift_JIS"></head><body><p>こんにちは</p></body></html>"#
+        let jp = fixtures.url("jp.html")
+        try japanese.data(using: .shiftJIS)!.write(to: jp)
+        #expect(try await convert(jp, to: .txt, fixtures).contains("こんにちは"))
+
+        #expect(TextDecoding.declaredEncoding(inHTML: Data(#"<meta charset="ISO-8859-1">"#.utf8)) == .windowsCP1252)
+        #expect(TextDecoding.declaredEncoding(inHTML: Data(#"<?xml version="1.0" encoding="EUC-KR"?><html>"#.utf8)) != nil)
+    }
+
     @Test func vttToSRTTranslatesStyling() async throws {
         let fixtures = try Fixtures(); defer { fixtures.remove() }
         let vtt = try fixtures.text("talk.vtt", """

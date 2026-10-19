@@ -70,15 +70,17 @@ nonisolated enum SpreadsheetDate {
     }
 
     static func isoDuration(_ fraction: Double) -> String {
-        let seconds = Int((fraction * 86_400).rounded())
-        return String(format: "PT%02dH%02dM%02dS", seconds / 3600, seconds / 60 % 60, seconds % 60)
+        let seconds = Int((abs(fraction) * 86_400).rounded())
+        let sign = fraction < 0 && seconds > 0 ? "-" : ""
+        return sign + String(format: "PT%02dH%02dM%02dS", seconds / 3600, seconds / 60 % 60, seconds % 60)
     }
 
     static func parseDuration(_ text: String) -> Double? {
         guard let match = text.firstMatch(of: /^-?P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?$/) else { return nil }
         let days = Double(match.output.1 ?? "0") ?? 0, hours = Double(match.output.2 ?? "0") ?? 0
         let minutes = Double(match.output.3 ?? "0") ?? 0, seconds = Double(match.output.4 ?? "0") ?? 0
-        return days + (hours * 3600 + minutes * 60 + seconds) / 86_400
+        let duration = days + (hours * 3600 + minutes * 60 + seconds) / 86_400
+        return text.hasPrefix("-") ? -duration : duration
     }
 }
 
@@ -251,6 +253,8 @@ nonisolated struct NumberFormat: Equatable {
     // MARK: - Formatting
 
     func format(_ value: Double, locale: Locale = .current) -> String {
+        // No format can show infinity or NaN; Excel shows #NUM!.
+        guard value.isFinite else { return "#NUM!" }
         guard var section = compiled.first else { return SpreadsheetNumber.general(value) }
         var number = value
         var signHandled = false
@@ -271,6 +275,9 @@ nonisolated struct NumberFormat: Equatable {
             result = Self.literalWrap(section.text, around: SpreadsheetNumber.general(number))
         } else {
             switch section.kind {
+            case .time where number < 0:
+                // A negative duration (ODS keeps them; LibreOffice shows "-01:30:00").
+                result = "-" + Self.renderDate(-number, tokens: section.tokens, locale: locale)
             case .date, .time, .dateTime: result = Self.renderDate(number, tokens: section.tokens, locale: locale)
             case .text: result = SpreadsheetNumber.general(number)
             default: result = Self.renderNumber(number, tokens: section.tokens, signHandled: signHandled)
@@ -486,6 +493,8 @@ nonisolated struct NumberFormat: Equatable {
             return nil
         }.max() ?? 0
         let parts = SpreadsheetDate.parts(serial, roundToSecond: fractionDigits == 0)
+        // Elapsed [h], [m] and [s] count whole units, like Excel: 90 s in [mm]:ss is 01:30.
+        let elapsedSeconds = fractionDigits == 0 ? Int((serial * 86_400).rounded()) : Int((serial * 86_400 + 1e-9).rounded(.down))
         let twelveHour = tokens.contains { if case .date(let text) = $0 { return ["am/pm", "a/p"].contains(text.lowercased()) }; return false }
         let symbols = DateSymbols.of(locale)
 
@@ -533,12 +542,11 @@ nonisolated struct NumberFormat: Equatable {
                         let fraction = Double(parts.millisecond) / 1000
                         result += "." + String(String(format: "%.\(digits)f", fraction).dropFirst(2))
                     } else if text.hasPrefix("[h") {
-                        let hours = Int((serial * 86_400).rounded()) / 3600
-                        result += String(format: "%0\(text.count - 2)d", hours)
+                        result += String(format: "%0\(text.count - 2)d", elapsedSeconds / 3600)
                     } else if text.hasPrefix("[m") {
-                        result += String(format: "%0\(text.count - 2)d", Int((serial * 1440).rounded()))
+                        result += String(format: "%0\(text.count - 2)d", elapsedSeconds / 60)
                     } else if text.hasPrefix("[s") {
-                        result += String(format: "%0\(text.count - 2)d", Int((serial * 86_400).rounded()))
+                        result += String(format: "%0\(text.count - 2)d", elapsedSeconds)
                     }
                 }
             default: continue
@@ -613,7 +621,10 @@ nonisolated struct NumberFormat: Equatable {
                 tokens.append(.literal(text))
             }
         }
-        let hasDateParts = section.replacingOccurrences(of: #""[^"]*""#, with: "", options: .regularExpression)
+        // Escaped (\m), padded (_m), filled (*m) and quoted letters are text, not date parts:
+        // "0.00\ \m" is a number shown in metres.
+        let hasDateParts = section.replacingOccurrences(of: #"[\\_*]."#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #""[^"]*""#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\[[^\]]*\]"#, with: "", options: .regularExpression)
             .lowercased().contains { "ymdhs".contains($0) }
         while index < characters.count {

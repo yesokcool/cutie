@@ -221,6 +221,96 @@ struct SpreadsheetFidelityTests {
         #expect(SpreadsheetDate.serial(year: 1900, month: 3, day: 1) == 61)
     }
 
+    @Test func decimalStyleComesFromTheNumbers() async throws {
+        let fixtures = try Fixtures(); defer { fixtures.remove() }
+        func read(_ url: URL, _ locale: Locale = Self.us) async throws -> [[Workbook.Cell]] {
+            try await Spreadsheet.read(url, scratch: try Scratch(), toolbox: .none, locale: locale).sheets[0].rows
+        }
+        // Semicolons with point decimals: 0.125 must not become 125.
+        let points = try await read(try fixtures.text("points.csv", "Item;Rate;Pi\nA;0.125;3.14\nB;1.500;2.71\n"))
+        #expect(points[1][1].value == 0.125)
+        #expect(points[1][2].value == 3.14)
+        #expect(points[2][1].value == 1.5)
+        // Semicolons with comma decimals.
+        let commas = try await read(try fixtures.text("commas.csv", "Item;Price\nA;1.234,56\nB;12,50\n"))
+        #expect(commas[1][1].value == 1234.56)
+        #expect(commas[2][1].value == 12.5)
+        // Nothing decisive ("1.500" only): the locale decides.
+        let vague = try fixtures.text("vague.csv", "Item;Amount\nA;1.500\n")
+        #expect(try await read(vague)[1][1].value == 1.5)
+        #expect(try await read(vague, Locale(identifier: "de_DE"))[1][1].value == 1500)
+        // A TSV from a decimal-comma locale.
+        #expect(try await read(try fixtures.text("table.tsv", "Item\tPrice\nA\t12,50\n"))[1][1].value == 12.5)
+    }
+
+    @Test func escapedLettersElapsedTimeAndOddValues() {
+        func shows(_ code: String, _ value: Double) -> String { NumberFormat(code: code).format(value, locale: Self.us) }
+        #expect(shows(#"0.00\ \m"#, 12.5) == "12.50 m")
+        #expect(shows(#"0.0_m"#, 3) == "3.0")
+        #expect(shows("[mm]:ss", 90.0 / 86_400) == "01:30")
+        #expect(shows("[m]", 150.0 / 86_400) == "2")
+        #expect(shows("[h]:mm", 5399.0 / 86_400) == "1:29")
+        #expect(shows("hh:mm:ss", -0.0625) == "-01:30:00")
+        #expect(shows("yyyy-mm-dd", .infinity) == "#NUM!")
+        #expect(shows("[h]:mm", .nan) == "#NUM!")
+        #expect(SpreadsheetDate.parseDuration("-PT01H30M00S") == -0.0625)
+        #expect(SpreadsheetDate.isoDuration(-0.0625) == "-PT01H30M00S")
+    }
+
+    /// An .ods built by hand from table XML, saved in a German LibreOffice.
+    func ods(_ fixtures: Fixtures, _ tableXML: String) async throws -> URL {
+        let root = try fixtures.folder.appending(path: "ods-\(UUID().uuidString)").create()
+        try root.appending(path: "META-INF").create()
+        try Data("application/vnd.oasis.opendocument.spreadsheet".utf8).write(to: root.appending(path: "mimetype"))
+        try Data(#"<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.spreadsheet"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>"#.utf8)
+            .write(to: root.appending(path: "META-INF/manifest.xml"))
+        try Data(#"<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2"><office:body><office:spreadsheet><table:table table:name="Blatt1">\#(tableXML)</table:table></office:spreadsheet></office:body></office:document-content>"#.utf8)
+            .write(to: root.appending(path: "content.xml"))
+        let url = fixtures.url("de-\(UUID().uuidString).ods")
+        try await Shell.run(Shell.zip, ["-X", "-0", "-q", url.path, "mimetype"], in: root)
+        try await Shell.run(Shell.zip, ["-X", "-r", "-q", url.path, "content.xml", "META-INF"], in: root)
+        return url
+    }
+
+    @Test func germanODSKeepsItsDecimals() async throws {
+        let fixtures = try Fixtures(); defer { fixtures.remove() }
+        func cell(_ attributes: String, _ shown: String) -> String {
+            #"<table:table-cell \#(attributes)><text:p>\#(shown)</text:p></table:table-cell>"#
+        }
+        let url = try await ods(fixtures, "<table:table-row>"
+            + cell(#"office:value-type="float" office:value="1.5""#, "1,500")
+            + cell(#"office:value-type="percentage" office:value="0.125""#, "12,5 %")
+            + cell(#"office:value-type="currency" office:currency="EUR" office:value="1234.56""#, "1.234,56 €")
+            + cell(#"office:value-type="float" office:value="1500""#, "1.500")
+            + cell(#"office:value-type="time" office:time-value="-PT01H30M00S""#, "-01:30:00")
+            + cell(#"office:value-type="float" office:value="1e999""#, "")
+            + "</table:table-row>")
+        let row = try await ODS.read(url, scratch: try Scratch()).sheets[0].rows[0]
+        #expect(row[0].value == 1.5 && row[0].formatCode == "0.000")
+        #expect(row[1].value == 0.125 && row[1].formatCode == "0.0%")
+        #expect(row[2].value == 1234.56 && row[2].kind == .currency("€"))
+        #expect(row[3].value == 1500 && row[3].formatCode == "#,##0")
+        #expect(row[4].value == -0.0625)
+        #expect(row[5].text == "#NUM!" && row[5].value == nil)
+
+        // Through Excel and back, shown the Excel way.
+        let xlsx = fixtures.url("de.xlsx")
+        try await XLSX.write(Workbook(sheets: [.init(name: "Blatt1", rows: [row])]), to: xlsx, scratch: try Scratch())
+        let shown = try await XLSX.read(xlsx, scratch: try Scratch(), locale: Self.us).sheets[0].textRows[0]
+        #expect(Array(shown.prefix(4)) == ["1.500", "12.5%", "1,234.56 €", "1,500"], "\(shown)")
+    }
+
+    @Test func mergedSheetsWriteQuickly() async throws {
+        let fixtures = try Fixtures(); defer { fixtures.remove() }
+        // 2,000 wide merged rows, then 20,000 plain ones (each used to scan every covered cell).
+        let rows = (0..<22_000).map { [Workbook.Cell(text: "Row \($0)")] }
+        let merges = (0..<2000).map { Workbook.Merge(firstRow: $0, firstColumn: 0, lastRow: $0, lastColumn: 59) }
+        let clock = ContinuousClock()
+        let started = clock.now
+        try await ODS.write(Workbook(sheets: [.init(name: "Wide", rows: rows, merges: merges)]), to: fixtures.url("wide.ods"), scratch: try Scratch())
+        #expect(clock.now - started < .seconds(5))
+    }
+
     @Test func bigSheetsStream() async throws {
         let fixtures = try Fixtures(); defer { fixtures.remove() }
         let rows = (0..<40_000).map { index -> [Workbook.Cell] in

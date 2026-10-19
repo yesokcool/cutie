@@ -39,6 +39,42 @@ nonisolated enum TextDecoding {
         return best.text
     }
 
+    /// A web page: a byte-order mark wins, then the encoding the page declares
+    /// (`<meta charset>`, the http-equiv Content-Type, an XML declaration),
+    /// then the guesses `decode` makes. Windows-1251, Shift_JIS, EUC-KR, GB18030…
+    /// all work when declared.
+    static func decodeHTML(_ data: Data) throws -> String {
+        let bytes = [UInt8](data.prefix(4))
+        let marked = bytes.starts(with: [0xEF, 0xBB, 0xBF]) || bytes.starts(with: [0xFF, 0xFE]) || bytes.starts(with: [0xFE, 0xFF])
+        if !marked, unmarkedUTF16(data) == nil, let encoding = declaredEncoding(inHTML: data),
+           let text = String(data: data, encoding: encoding) {
+            return text
+        }
+        return try decode(data)
+    }
+
+    /// The charset a page names in its first few kilobytes. Latin-1 and ASCII
+    /// labels mean Windows-1252, as in every browser (WHATWG Encoding).
+    static func declaredEncoding(inHTML data: Data) -> String.Encoding? {
+        let head = String(decoding: data.prefix(4096), as: UTF8.self)
+        let patterns = [#"<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9_.:\-]+)"#,
+                        #"<\?xml[^>]+encoding\s*=\s*["']([A-Za-z0-9_.:\-]+)"#]
+        for pattern in patterns {
+            guard let range = head.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else { continue }
+            let match = String(head[range])
+            guard let label = match.range(of: #"[A-Za-z0-9_.:\-]+$"#, options: .regularExpression).map({ String(match[$0]) }) else { continue }
+            switch label.lowercased() {
+            case "iso-8859-1", "latin1", "l1", "us-ascii", "ascii", "windows-1252", "cp1252": return .windowsCP1252
+            case "utf-8", "utf8": return .utf8
+            default: break
+            }
+            let cfEncoding = CFStringConvertIANACharSetNameToEncoding(label as CFString)
+            guard cfEncoding != kCFStringEncodingInvalidId else { continue }
+            return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cfEncoding))
+        }
+        return nil
+    }
+
     /// UTF-16 saved without a byte-order mark: mostly-ASCII text leaves every
     /// other byte zero.
     static func unmarkedUTF16(_ data: Data) -> String.Encoding? {

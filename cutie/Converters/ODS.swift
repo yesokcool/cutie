@@ -134,8 +134,9 @@ nonisolated enum ODS {
             switch type {
             case "float", "percentage", "currency":
                 guard let number else { return Workbook.Cell(text: shown) }
+                guard number.isFinite else { return Workbook.Cell(text: "#NUM!") }
                 let text = shown.isEmpty ? SpreadsheetNumber.general(number) : shown
-                let shape = SpreadsheetNumber.parse(shown.trimmingCharacters(in: .whitespaces), decimalComma: false)
+                let shape = ODS.shape(of: shown, matching: number)
                 switch type {
                 case "percentage":
                     return Workbook.Cell(text: text, value: number, kind: .percent, formatCode: shape?.formatCode ?? "0%")
@@ -169,6 +170,23 @@ nonisolated enum ODS {
                 return Workbook.Cell(text: cellAttributes["string-value"] ?? shown)
             }
         }
+    }
+
+    /// How a cell's shown text formats its value ("1,500" for 1.5 in German is
+    /// three decimals; "1,500" for 1500 in English is grouping). The text is
+    /// read both ways and only the reading that gives back the stored value
+    /// (allowing for the rounding the text shows) counts.
+    static func shape(of shown: String, matching value: Double) -> SpreadsheetNumber.Parsed? {
+        let trimmed = shown.trimmingCharacters(in: .whitespaces)
+        for decimalComma in [false, true] {
+            guard let parsed = SpreadsheetNumber.parse(trimmed, decimalComma: decimalComma) else { continue }
+            let mark: Character = decimalComma ? "," : "."
+            let places = trimmed.split(separator: mark).dropFirst().first.map { $0.prefix(while: \.isNumber).count } ?? 0
+            let scale = parsed.kind == .percent ? 0.01 : 1
+            let tolerance = max(abs(value) * 1e-9, 0.5 * pow(10, -Double(places)) * scale)
+            if abs(parsed.value - value) <= tolerance { return parsed }
+        }
+        return nil
     }
 
     static let currencies: [String: String] = [
@@ -229,11 +247,13 @@ nonisolated enum ODS {
             lastRow = max(lastRow, merge.lastRow + 1)
         }
 
+        let coveredRows = Set(covered.map { $0[0] })
+
         var xml = #"<table:table table:name="\#(XMLText.escape(sheet.name))">"#
         xml += #"<table:table-column table:number-columns-repeated="\#(max(1, lastColumn))"/>"#
         for rowIndex in 0..<lastRow {
             let row = rowIndex < sheet.rows.count ? sheet.rows[rowIndex] : []
-            let width = max(row.count, covered.contains { $0[0] == rowIndex } || spans[rowIndex] != nil ? lastColumn : 0)
+            let width = max(row.count, coveredRows.contains(rowIndex) || spans[rowIndex] != nil ? lastColumn : 0)
             xml += "<table:table-row>"
             if width == 0 { xml += "<table:table-cell/>" }
             for columnIndex in 0..<width {

@@ -9,10 +9,12 @@ nonisolated enum Spreadsheet {
             let text = try DocumentReader.readText(url)
             let separator = CSV.separator(of: text)
             let rows = CSV.parse(CSV.droppingDeclaration(text), separator: separator)
-            // Semicolon CSVs come from locales that write 12,50 for twelve and a half.
-            return Workbook(sheets: [.init(name: name, text: rows, decimalComma: separator == ";")])
+            let decimalComma = CSV.usesDecimalComma(rows, separator: separator, locale: locale)
+            return Workbook(sheets: [.init(name: name, text: rows, decimalComma: decimalComma)])
         case "tsv":
-            return Workbook(sheets: [.init(name: name, text: CSV.parse(try DocumentReader.readText(url), separator: "\t"))])
+            let rows = CSV.parse(try DocumentReader.readText(url), separator: "\t")
+            let decimalComma = CSV.usesDecimalComma(rows, separator: "\t", locale: locale)
+            return Workbook(sheets: [.init(name: name, text: rows, decimalComma: decimalComma)])
         case "xlsx":
             return try await XLSX.read(url, scratch: scratch, locale: locale)
         case "ods":

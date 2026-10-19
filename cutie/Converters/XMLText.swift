@@ -18,12 +18,4 @@ nonisolated enum XMLText {
         }
         return result
     }
-
-    /// A number that should stay a number: no leading zeros (ZIP codes stay text), ≤ 15 digits (IDs stay text).
-    static func isPlainNumber(_ value: String) -> Bool {
-        guard value.range(of: #"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?$"#, options: .regularExpression) != nil else {
-            return false
-        }
-        return value.filter(\.isNumber).count <= 15
-    }
 }
