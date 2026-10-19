@@ -7,11 +7,69 @@ nonisolated enum Shell {
     struct Failure: LocalizedError {
         let tool: String
         let status: Int32
+        /// Everything the tool wrote to stderr.
         let output: String
 
-        var errorDescription: String? {
-            let detail = output.split(separator: "\n").last.map(String.init) ?? ""
-            return detail.isEmpty ? "\(tool) stopped (\(status))." : detail
+        var errorDescription: String? { Self.explain(output, tool: tool, status: status) }
+
+        /// Known problems in plain words; otherwise the line that names the
+        /// problem (tools often end with a summary like "Error exit delayed").
+        static func explain(_ output: String, tool: String, status: Int32) -> String {
+            let lines = output.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            for (patterns, reason) in plainReasons
+            where lines.contains(where: { line in patterns.contains { line.localizedCaseInsensitiveContains($0) } }) {
+                return reason
+            }
+            let meaningful = lines.filter { line in !noise.contains { line.hasPrefix($0) } }
+            let problem = meaningful.last { line in problemWords.contains { line.localizedCaseInsensitiveContains($0) } }
+            guard let line = problem ?? meaningful.last else { return "\(tool) stopped (\(status))." }
+            return cleaned(line, tool: tool)
+        }
+
+        /// Checked in order: "Data Error in encrypted file. Wrong password?" is a password problem.
+        static let plainReasons: [([String], String)] = [
+            (["password", "passphrase", "encrypted", "encryption"], "This file is password-protected."),
+            (["No space left on device", "Disk full", "not enough space", "ENOSPC"], "The disk is full."),
+            (["Permission denied", "Operation not permitted", "Read-only file system"],
+             "Cutie isn't allowed to read or write there (permission denied)."),
+            (["Could not find tag for codec", "not currently supported in container"],
+             "That format can't hold this file's audio or video."),
+            (["Unknown encoder", "Encoder not found", "Decoder not found", "Unsupported codec", "could not find codec"],
+             "This file's audio or video codec isn't supported."),
+            (["Invalid data found when processing input", "moov atom not found", "corrupt", "Truncated", "Unexpected end",
+              "unexpected EOF", "CRC Failed", "Data Error", "Can't open as archive", "Unrecognized archive format",
+              "Damaged"],
+             "This file is damaged or isn't what its name says."),
+            (["No such file or directory"], "A file Cutie needed wasn't there (moved or renamed?)."),
+        ]
+
+        /// Banners, progress and summaries that never say what went wrong.
+        static let noise = [
+            "frame=", "size=", "video:", "Press [q]", "ffmpeg version", "built with", "configuration:", "libav", "libsw",
+            "libpostproc", "Input #", "Output #", "Stream #", "Duration:", "Metadata:", "Stream mapping", "Side data:",
+            "7-Zip", "p7zip", "Scanning the drive", "Extracting archive", "Path =", "Type =", "Physical Size", "--",
+            "Sub items Errors", "Archives with Errors", "Files:", "Size:", "Compressed:", "Folders:",
+            "tar: Error exit delayed",
+        ]
+
+        static let problemWords = [
+            "error", "invalid", "no such", "denied", "not permitted", "corrupt", "unsupported", "not supported",
+            "failed", "cannot", "can't", "unable", "could not", "couldn't", "unknown", "wrong", "incorrect", "missing",
+        ]
+
+        /// "tar: x: Something: Unknown error: -1" → "x: Something"; "[mp4 @ 0x1] Oops" → "Oops".
+        static func cleaned(_ line: String, tool: String) -> String {
+            var line = line
+            for prefix in ["\(tool): ", "tar: ", "ERROR: ", "Error: "] where line.hasPrefix(prefix) {
+                line.removeFirst(prefix.count)
+            }
+            if line.hasPrefix("["), let close = line.firstIndex(of: "]"), line[..<close].contains("@ 0x") {
+                line = String(line[line.index(after: close)...]).trimmingCharacters(in: .whitespaces)
+            }
+            if let range = line.range(of: ": Unknown error: -1") { line.removeSubrange(range) }
+            return line.prefix(1).uppercased() + line.dropFirst()
         }
     }
 

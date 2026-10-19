@@ -7,6 +7,8 @@ nonisolated struct Toolbox: Sendable, Equatable {
     var ffmpeg: URL?
     var ffprobe: URL?
     var cwebp: URL?
+    /// 7-Zip (`7zz` from `brew install sevenzip`, or p7zip's `7z`): split archives, RAR and 7z.
+    var sevenZip: URL?
     /// Animated WebP; installed with cwebp (`brew install webp`).
     var img2webp: URL?
     /// Ghostscript, for PDF compression that rivals Acrobat's.
@@ -34,6 +36,7 @@ nonisolated struct Toolbox: Sendable, Equatable {
             ffmpeg: tool("ffmpeg"),
             ffprobe: tool("ffprobe"),
             cwebp: tool("cwebp"),
+            sevenZip: tool("7zz") ?? tool("7z"),
             img2webp: tool("img2webp"),
             ghostscript: tool("gs"),
             pages: app("com.apple.iWork.Pages"),

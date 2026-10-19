@@ -116,7 +116,7 @@ final class CutieCore {
     /// The Trim window's OK: save the chosen range beside the original.
     private func trim(_ url: URL, range: CMTimeRange, at point: NSPoint) {
         jobs.run(title: Tool.trimMedia.progressTitle, symbol: Tool.trimMedia.symbol, at: point) { context in
-            let scratch = try Scratch()
+            let scratch = try Scratch(near: context.output.directory(for: url))
             defer { scratch.remove() }
             let (_, ext) = MediaTools.fileType(for: url)
             let target = scratch.file("\(Output.baseName(of: url))\(Tool.trimMedia.suffix).\(ext)")

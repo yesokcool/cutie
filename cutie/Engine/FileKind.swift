@@ -8,6 +8,10 @@ nonisolated enum FileKind: String, Sendable, Hashable {
     static func of(_ url: URL) -> FileKind {
         let ext = Self.fileExtension(of: url)
         if let kind = byExtension[ext] { return kind }
+        // The first part of a split archive: "photos.7z.001".
+        if ext == "001", ["7z", "zip", "rar"].contains(url.deletingPathExtension().pathExtension.lowercased()) {
+            return .archive
+        }
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
             return .folder

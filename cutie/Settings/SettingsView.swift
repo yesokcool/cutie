@@ -59,6 +59,8 @@ struct SettingsView: View {
                           found: core.toolbox.cwebp != nil, install: "brew install webp")
                 HelperRow(name: "Ghostscript", unlocks: "Smaller compressed PDFs",
                           found: core.toolbox.ghostscript != nil, install: "brew install ghostscript")
+                HelperRow(name: "7-Zip", unlocks: "Split archives, and RAR and 7z beyond what macOS opens",
+                          found: core.toolbox.sevenZip != nil, install: "brew install sevenzip")
                 HelperRow(name: "Pages", unlocks: "Pages documents", found: core.toolbox.pages != nil)
                 HelperRow(name: "Keynote", unlocks: "Keynote and PowerPoint slides", found: core.toolbox.keynote != nil)
                 HelperRow(name: "Numbers", unlocks: "Numbers and XLS spreadsheets", found: core.toolbox.numbers != nil)

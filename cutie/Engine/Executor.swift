@@ -7,7 +7,8 @@ import CryptoKit
 nonisolated enum Executor {
     @concurrent
     static func run(_ item: WheelItem, inputs: [URL], context: JobContext) async throws -> JobOutcome {
-        let scratch = try Scratch()
+        guard let first = inputs.first else { throw CutieError("Nothing to work on.") }
+        let scratch = try Scratch(near: context.output.directory(for: first))
         defer { scratch.remove() }
         switch item.kind {
         case .convert(let format):
@@ -74,8 +75,9 @@ nonisolated enum Executor {
             try Subtitles.convert(input, to: format, at: target)
         case .archive:
             let unpacked = try scratch.folder(UUID().uuidString)
-            try await ArchiveConverter.extract(input, into: unpacked)
+            try await ArchiveConverter.extract(input, into: unpacked, toolbox: context.toolbox)
             try await ArchiveConverter.archive(try ArchiveConverter.topLevelItems(in: unpacked), as: format, to: target)
+            ArchiveConverter.copyQuarantine(from: input, to: target)
         case .folder, .other:
             throw CutieError("Nothing to convert this to.")
         }
@@ -204,7 +206,7 @@ nonisolated enum Executor {
             try await MediaTools.normalize(input, to: target, context: context)
         case .extract:
             let unpacked = try scratch.folder(UUID().uuidString)
-            try await ArchiveConverter.extract(input, into: unpacked)
+            try await ArchiveConverter.extract(input, into: unpacked, toolbox: context.toolbox)
             let items = try ArchiveConverter.topLevelItems(in: unpacked)
             guard !items.isEmpty else { throw CutieError("This archive is empty.") }
             if items.count == 1 {
@@ -280,6 +282,7 @@ nonisolated enum Executor {
 
     /// Runs `body` on each input with progress spread across them. One failure
     /// doesn't stop the batch; if everything fails, the first error is thrown.
+    /// Cancelling takes back the results already placed: a cancelled job leaves nothing.
     static func eachFile(
         _ inputs: [URL], context: JobContext,
         _ body: (URL, JobContext) async throws -> URL?
@@ -288,13 +291,17 @@ nonisolated enum Executor {
         var firstError: Error?
         let count = Double(inputs.count)
         for (index, input) in inputs.enumerated() {
-            try Task.checkCancellation()
+            if Task.isCancelled {
+                for file in outcome.files { try? FileManager.default.removeItem(at: file) }
+                throw CancellationError()
+            }
             var fileContext = context
             let report = context.progress
             fileContext.progress = { report((Double(index) + min(max($0, 0), 1)) / count) }
             do {
                 if let file = try await body(input, fileContext) { outcome.files.append(file) }
             } catch is CancellationError {
+                for file in outcome.files { try? FileManager.default.removeItem(at: file) }
                 throw CancellationError()
             } catch {
                 firstError = firstError ?? error
