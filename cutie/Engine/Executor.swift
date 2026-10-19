@@ -193,8 +193,11 @@ nonisolated enum Executor {
             target = work.appending(path: "\(base)\(tool.suffix).\(ext)")
             try await MediaTools.mute(input, to: target, context: context)
         case .extractAudio:
-            target = work.appending(path: "\(base).m4a")
-            try await MediaTools.extractAudio(input, to: target, context: context)
+            let format = await MediaTools.audioFormat(for: input, context: context)
+            target = work.appending(path: "\(base).\(format.fileExtension)")
+            try await MediaTools.extractAudio(input, as: format, to: target, context: context)
+        case .extractSubtitles:
+            target = try await MediaTools.extractSubtitles(input, in: work, context: context)
         case .rotateVideo:
             target = work.appending(path: "\(base)\(tool.suffix).\(MediaTools.isNative(input) ? mediaExt : "mp4")")
             try await MediaTools.rotate(input, to: target, context: context)
@@ -203,7 +206,7 @@ nonisolated enum Executor {
             try await MediaTools.resize720(input, to: target, context: context)
         case .snapshot:
             target = work.appending(path: "\(base).png")
-            try await MediaTools.snapshot(input, to: target, context: context)
+            try await MediaTools.snapshot(input, to: target, context: context, scratch: scratch)
         case .compressAudio:
             target = work.appending(path: "\(base)\(tool.suffix).m4a")
             try await MediaTools.compressAudio(input, to: target, context: context)

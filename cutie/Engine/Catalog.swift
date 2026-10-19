@@ -10,6 +10,8 @@ nonisolated enum Catalog {
     /// Documents NSAttributedString (or Cutie's own readers) open without Pages.
     static let nativeDocuments: Set<String> = ["docx", "doc", "rtf", "rtfd", "txt", "text", "md", "markdown", "html", "htm", "odt", "webarchive", "textclipping"]
     static let nativeSpreadsheets: Set<String> = ["xlsx", "csv", "tsv", "ods"]
+    /// Video containers that carry subtitle tracks (Get Subtitles needs ffmpeg).
+    static let subtitleContainers: Set<String> = ["mkv", "mp4", "m4v", "mov", "webm"]
 
     static func items(for inputs: [URL], wheel: Wheel, toolbox: Toolbox) -> [WheelItem] {
         guard !inputs.isEmpty else { return [] }
@@ -108,7 +110,9 @@ nonisolated enum Catalog {
                 if native || ffmpeg {
                     tools.append(.compressVideo)
                     if native && !many { tools.append(.trimMedia) }
-                    tools += [.muteVideo, .extractAudio, .rotateVideo, .resizeVideo, .snapshot]
+                    tools += [.muteVideo, .extractAudio]
+                    if ffmpeg, extensions.allSatisfy(subtitleContainers.contains) { tools.append(.extractSubtitles) }
+                    tools += [.rotateVideo, .resizeVideo, .snapshot]
                 }
             case .audio:
                 let native = extensions.allSatisfy(nativeAudio.contains)

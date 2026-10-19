@@ -91,7 +91,7 @@ nonisolated enum FileIntegrity {
             guard size >= 8 else { return false }
             index += size
         }
-        return index == data.count
+        return index <= data.count // a few stray bytes after the last box are harmless
     }
 
     private static func bigEndian32(_ data: Data, at offset: Int) -> UInt32 {

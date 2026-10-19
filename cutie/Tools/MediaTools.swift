@@ -2,7 +2,9 @@ import AVFoundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// The video and audio half of the Tools wheel.
+/// The video and audio half of the Tools wheel. Every tool keeps what it
+/// isn't about: other tracks, subtitles, chapters, cover art, capture date
+/// and location, HDR, sample rate and bit depth.
 nonisolated enum MediaTools {
     static func isNative(_ input: URL) -> Bool {
         let ext = FileKind.fileExtension(of: input)
@@ -19,20 +21,28 @@ nonisolated enum MediaTools {
         }
     }
 
+    /// Smaller video: H.264 (HDR: 10-bit HEVC) at a higher CRF. Lossy audio
+    /// is copied as is (re-encoding it would only lose quality); subtitles,
+    /// chapters and metadata stay.
     static func compressVideo(_ input: URL, to output: URL, context: JobContext) async throws {
+        try MediaChecks.checkComplete(input)
         if context.toolbox.ffmpeg != nil {
-            try await FFmpeg.run(input: input, output: output, arguments: [
-                "-c:v", "libx264", "-preset", "medium", "-crf", "28", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-            ], context: context)
+            try await FFmpeg.convert(input, to: .mp4, at: output, context: context,
+                                     options: FFmpeg.Options(reencodeVideo: true, compact: true))
         } else {
             try await MediaConverter.export(input, to: output, fileType: .mp4, preset: AVAssetExportPresetHEVC1920x1080, context: context)
+            try await MediaChecks.checkLength(of: output, against: input, context: context)
         }
     }
 
     static func mute(_ input: URL, to output: URL, context: JobContext) async throws {
+        try MediaChecks.checkComplete(input)
         guard isNative(input) else {
-            return try await FFmpeg.run(input: input, output: output, arguments: ["-c:v", "copy", "-an"], context: context)
+            // Everything but the sound, copied as is.
+            try await FFmpeg.run(input: input, output: output, arguments: [
+                "-map", "0", "-map", "-0:a", "-c", "copy", "-map_metadata", "0", "-map_chapters", "0",
+            ], context: context)
+            return try await MediaChecks.checkLength(of: output, against: input, context: context)
         }
         let asset = AVURLAsset(url: input)
         let composition = AVMutableComposition()
@@ -46,18 +56,41 @@ nonisolated enum MediaTools {
         try await MediaConverter.export(input, to: output, fileType: type, preferPassthrough: true, asset: composition, context: context)
     }
 
-    static func extractAudio(_ input: URL, to output: URL, context: JobContext) async throws {
-        if isNative(input) {
-            try await MediaConverter.export(input, to: output, fileType: .m4a, preset: AVAssetExportPresetAppleM4A, context: context)
-        } else {
-            try await FFmpeg.convert(input, to: .m4a, at: output, context: context)
+    /// The format Get Audio writes: the sound's own codec copied as is when a
+    /// format holds it (AAC → M4A, MP3 → MP3, FLAC → FLAC, PCM → WAV…), M4A otherwise.
+    static func audioFormat(for input: URL, context: JobContext) async -> Format {
+        guard context.toolbox.ffmpeg != nil, let audio = try? await FFmpeg.probe(input, context: context).mainAudio else { return .m4a }
+        switch audio.codec {
+        case "mp3": return .mp3
+        case "flac": return .flac
+        case "opus": return .opus
+        case "vorbis": return .ogg
+        case let codec where codec.hasPrefix("pcm_"): return .wav
+        default: return .m4a
         }
     }
 
-    /// 90° clockwise. Natively it only changes the track's rotation flag, so the video isn't re-encoded.
+    static func extractAudio(_ input: URL, as format: Format = .m4a, to output: URL, context: JobContext) async throws {
+        try MediaChecks.checkComplete(input)
+        if context.toolbox.ffmpeg != nil {
+            let probe = try await FFmpeg.probe(input, context: context)
+            guard !probe.audio.isEmpty else { throw CutieError("This file has no sound.") }
+            try await FFmpeg.convert(input, to: format, at: output, context: context, probe: probe)
+        } else {
+            try await MediaConverter.exportAudio(input, to: output, context: context)
+            try await MediaChecks.checkLength(of: output, against: input, context: context)
+        }
+    }
+
+    /// 90° clockwise. It only changes the video's rotation flag, so nothing is
+    /// re-encoded; a video codec MP4 can't hold is re-encoded turned.
     static func rotate(_ input: URL, to output: URL, context: JobContext) async throws {
+        try MediaChecks.checkComplete(input)
         guard isNative(input) else {
-            return try await FFmpeg.run(input: input, output: output, arguments: ["-vf", "transpose=1"] + FFmpeg.codecArguments(for: .mp4), context: context)
+            let probe = try await FFmpeg.probe(input, context: context)
+            let copyable = probe.video.first.map { FFmpeg.copiesVideo($0.codec, into: .mp4) } ?? false
+            let options = copyable ? FFmpeg.Options(addRotation: -90) : FFmpeg.Options(videoFilter: "transpose=1")
+            return try await FFmpeg.convert(input, to: .mp4, at: output, context: context, probe: probe, options: options)
         }
         let asset = AVURLAsset(url: input)
         let composition = AVMutableComposition()
@@ -83,42 +116,84 @@ nonisolated enum MediaTools {
     }
 
     static func resize720(_ input: URL, to output: URL, context: JobContext) async throws {
+        try MediaChecks.checkComplete(input)
         if isNative(input) {
             try await MediaConverter.export(input, to: output, fileType: .mp4, preset: AVAssetExportPreset1280x720, context: context)
+            try await MediaChecks.checkLength(of: output, against: input, context: context)
         } else {
-            try await FFmpeg.run(input: input, output: output, arguments: ["-vf", "scale=-2:'min(720,ih)'"] + FFmpeg.codecArguments(for: .mp4), context: context)
+            try await FFmpeg.convert(input, to: .mp4, at: output, context: context,
+                                     options: FFmpeg.Options(reencodeVideo: true, videoFilter: "scale=-2:'min(720,ih)'"))
         }
     }
 
-    /// The frame in the middle of the video, as a PNG.
-    static func snapshot(_ input: URL, to output: URL, context: JobContext) async throws {
-        guard isNative(input) else {
-            let middle = (await FFmpeg.duration(of: input, context: context) ?? 0) / 2
-            return try await FFmpeg.run(input: input, output: output, arguments: ["-frames:v", "1"], context: context,
-                                        inputOptions: ["-ss", String(format: "%.2f", middle)])
+    /// The frame in the middle of the video, as a PNG (HDR tone-mapped to SDR).
+    static func snapshot(_ input: URL, to output: URL, context: JobContext, scratch: Scratch) async throws {
+        try MediaChecks.checkComplete(input)
+        var source = input
+        if !isNative(input) {
+            let probe = try await FFmpeg.probe(input, context: context)
+            if probe.isHDR {
+                source = try await MediaConverter.nativeCopy(of: input, probe: probe, context: context, scratch: scratch)
+            } else {
+                let middle = (probe.duration ?? 0) / 2
+                return try await FFmpeg.run(input: input, output: output, arguments: ["-map", "0:v:0", "-frames:v", "1"], context: context,
+                                            inputOptions: ["-ss", String(format: "%.2f", middle)])
+            }
         }
-        let asset = AVURLAsset(url: input)
+        let asset = AVURLAsset(url: source)
         let duration = try await asset.load(.duration)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
+        generator.dynamicRangePolicy = .forceSDR
         let (image, _) = try await generator.image(at: CMTime(seconds: duration.seconds / 2, preferredTimescale: 600))
         try ImageConverter.write(image, as: .png, to: output, quality: 1)
     }
 
+    /// Smaller audio as AAC (64 kbps a channel), cover art and tags kept.
     static func compressAudio(_ input: URL, to output: URL, context: JobContext) async throws {
+        try MediaChecks.checkComplete(input)
         if context.toolbox.ffmpeg != nil {
-            try await FFmpeg.run(input: input, output: output, arguments: ["-vn", "-c:a", "aac", "-b:a", "128k"], context: context)
+            try await FFmpeg.convert(input, to: .m4a, at: output, context: context,
+                                     options: FFmpeg.Options(compact: true, reencodeAudio: true))
         } else {
             try await MediaConverter.export(input, to: output, fileType: .m4a, preset: AVAssetExportPresetAppleM4A, context: context)
+            try await MediaChecks.checkLength(of: output, against: input, context: context)
         }
     }
 
-    /// Loudness evened out to −16 LUFS (podcast level), same format as the input.
+    /// Loudness evened out to −16 LUFS (podcast level), same format, sample
+    /// rate and bit depth as the input. Two passes: the first measures, the
+    /// second applies one exact, constant gain (no pumping).
     static func normalize(_ input: URL, to output: URL, context: JobContext) async throws {
+        try MediaChecks.checkComplete(input)
+        let probe = try await FFmpeg.probe(input, context: context)
+        guard let audio = probe.mainAudio else { throw CutieError("This file has no sound.") }
+        let target = "I=-16:TP=-1.5:LRA=11"
+        var filter = "loudnorm=\(target)"
+        let log = try await FFmpeg.runCapturingLog(["-hide_banner", "-nostdin", "-i", input.path, "-map", "0:\(audio.index)",
+                                                    "-af", "loudnorm=\(target):print_format=json", "-f", "null", "-"], context: context)
+        if let measured = loudnessMeasurements(in: log) {
+            filter += ":measured_I=\(measured["input_i"]!):measured_TP=\(measured["input_tp"]!)"
+                + ":measured_LRA=\(measured["input_lra"]!):measured_thresh=\(measured["input_thresh"]!)"
+                + ":offset=\(measured["target_offset"]!):linear=true"
+        }
         let format = Format.matching(extension: FileKind.fileExtension(of: input)) ?? .m4a
-        try await FFmpeg.run(input: input, output: output,
-                             arguments: ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"] + FFmpeg.codecArguments(for: format),
-                             context: context)
+        // loudnorm works at 192 kHz inside; the plan asks for the source's own rate back.
+        let arguments = FFmpeg.arguments(for: format, probe: probe, options: FFmpeg.Options(reencodeAudio: true, audioFilter: filter),
+                                         toolbox: context.toolbox)
+        try await FFmpeg.run(input: input, output: output, arguments: arguments, context: context)
+        try await MediaChecks.checkLength(of: output, against: input, expected: probe.duration, context: context)
+    }
+
+    /// The numbers loudnorm prints after its measuring pass.
+    static func loudnessMeasurements(in log: String) -> [String: String]? {
+        guard let start = log.range(of: "{", options: .backwards),
+              let end = log.range(of: "}", options: .backwards), start.lowerBound < end.upperBound,
+              let object = try? JSONSerialization.jsonObject(with: Data(log[start.lowerBound..<end.upperBound].utf8)) as? [String: String]
+        else { return nil }
+        let keys = ["input_i", "input_tp", "input_lra", "input_thresh", "target_offset"]
+        guard keys.allSatisfy({ object[$0].flatMap(Double.init)?.isFinite == true }) else { return nil }
+        return object
     }
 
     /// One after the other, in the order dropped, as M4A.
@@ -129,6 +204,7 @@ nonisolated enum MediaTools {
         }
         var cursor = CMTime.zero
         for input in inputs {
+            try MediaChecks.checkComplete(input)
             let asset = AVURLAsset(url: input)
             let duration = try await asset.load(.duration)
             guard let source = try await asset.loadTracks(withMediaType: .audio).first else { continue }
@@ -142,5 +218,34 @@ nonisolated enum MediaTools {
     static func trim(_ input: URL, range: CMTimeRange, to output: URL, context: JobContext) async throws {
         let (type, _) = fileType(for: input)
         try await MediaConverter.export(input, to: output, fileType: type, preferPassthrough: true, timeRange: range, context: context)
+    }
+
+    /// Each text subtitle track as an SRT named the way players look for them
+    /// ("film.eng.srt"): one file, or a folder when there are several.
+    static func extractSubtitles(_ input: URL, in work: URL, context: JobContext) async throws -> URL {
+        try MediaChecks.checkComplete(input)
+        let probe = try await FFmpeg.probe(input, context: context)
+        let tracks = probe.subtitles.filter(\.isTextSubtitle)
+        guard !tracks.isEmpty else {
+            throw CutieError(probe.subtitles.isEmpty
+                ? "This video has no subtitles."
+                : "These subtitles are pictures (from a DVD or Blu-ray), so they can't become text.")
+        }
+        let base = Output.baseName(of: input)
+        let folder = tracks.count == 1 ? work : work.appending(path: "\(base) (Subtitles)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var used = Set<String>()
+        var written: [URL] = []
+        for (number, track) in tracks.enumerated() {
+            let language = track.language.flatMap { $0 == "und" ? nil : $0 }
+            var name = language.map { "\(base).\($0)" } ?? (tracks.count == 1 ? base : "\(base) \(number + 1)")
+            if used.contains(name) { name += " \(number + 1)" }
+            used.insert(name)
+            let file = folder.appending(path: "\(name).srt")
+            try await FFmpeg.run(input: input, output: file, arguments: ["-map", "0:\(track.index)", "-c:s", "srt"], context: context)
+            written.append(file)
+            context.progress(Double(number + 1) / Double(tracks.count))
+        }
+        return tracks.count == 1 ? written[0] : folder
     }
 }

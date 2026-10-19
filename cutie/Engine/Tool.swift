@@ -8,7 +8,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
     // PDF
     case compressPDF, splitPDF, mergePDFs, rotatePDF, makeSearchable
     // Video & audio
-    case compressVideo, trimMedia, muteVideo, extractAudio, rotateVideo, resizeVideo, snapshot
+    case compressVideo, trimMedia, muteVideo, extractAudio, extractSubtitles, rotateVideo, resizeVideo, snapshot
     case compressAudio, mergeAudio, normalizeAudio
     // Text
     case wordCount
@@ -33,6 +33,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
         case .trimMedia: "Trim"
         case .muteVideo: "Mute"
         case .extractAudio: "Get Audio"
+        case .extractSubtitles: "Get Subtitles"
         case .resizeVideo: "720p"
         case .snapshot: "Snapshot"
         case .normalizeAudio: "Even Volume"
@@ -60,6 +61,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
         case .trimMedia: "timeline.selection"
         case .muteVideo: "speaker.slash"
         case .extractAudio: "waveform"
+        case .extractSubtitles: "captions.bubble"
         case .snapshot: "camera"
         case .mergeAudio: "link"
         case .normalizeAudio: "speaker.wave.3"
@@ -88,6 +90,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
         case .trimMedia: "Trimming"
         case .muteVideo: "Muting"
         case .extractAudio: "Getting the audio"
+        case .extractSubtitles: "Getting the subtitles"
         case .snapshot: "Taking a snapshot"
         case .normalizeAudio: "Evening the volume"
         case .wordCount: "Counting"
