@@ -73,3 +73,28 @@ out a quarter of the icon. Wrap the path in a 1024×1024 SVG with
 - **`PDFPage.draw(with:to:)` applies the page's rotation** (tested), so a
   rotated page renders landscape without extra transforms.
 - **Live Text's first run takes ~20 s** while the model loads (tests included).
+- **ImageIO says a truncated JPEG is complete.** `CGImageSourceGetStatusAtIndex`
+  returns `.statusComplete` for a half file and decoding fills the rest with
+  grey. `FileIntegrity` walks the container instead (JPEG segments to EOI, PNG
+  chunks to IEND, ISO boxes, RIFF size) — verified 2026-10-19.
+- **Lossless JPEG edits:** `CGImageDestinationCopyImageSource` rotates/flips by
+  rewriting only the orientation tag (pixels byte-identical, profile and GPS
+  kept). `kCGImageDestinationOrientation` can't be combined with
+  `kCGImageDestinationMetadata` (error "cannot be used with"), so stripping
+  puts the orientation *inside* the replacement metadata. HEIC refuses the copy
+  ("modifyHEIC failed"), so HEIC tools re-encode.
+- **HDR:** `kCGImageSourceDecodeToHDR` + `kCGImageDestinationEncodeToISOGainmap`
+  keeps a gain map in JPG, HEIC and AVIF (PNG/TIFF refuse it). For SDR targets,
+  tone-map at *decode* (`kCGImageSourceDecodeToSDR`):
+  `kCGImageDestinationEncodeToSDR` on a PQ image still writes PQ-tagged pixels.
+- **A JPEG drawn into a PDF context stays JPEG** (`/DCTDecode`, no
+  re-compression) when the CGImage comes straight from
+  `CGImageSourceCreateImageAtIndex`; a decoded/cached copy (the old thumbnail
+  path) is written as Flate, 6× bigger.
+- **PDFKit (macOS 27) drops a new outline on a document opened from a file**:
+  `outlineRoot = …` then `write` saves no bookmarks. A `PDFDocument()` built in
+  memory keeps them, so `PDFConverter.rebuilt` copies the pages into one first.
+  A Quartz filter on `write` also drops bookmarks (they're put back the same way).
+- **`PDFPage.draw(with:to:)` and `transform(for:)`** include the box offset and
+  rotation; Make Searchable inverts that transform to map Live Text's boxes
+  (read from the upright render) back onto the unrotated page.

@@ -247,7 +247,7 @@ struct ConversionTests {
         let merged = try #require(try await Executor.run(.tool(.mergePDFs), inputs: [input, rotated], context: fixtures.context).files.first)
         #expect(PDFDocument(url: merged)?.pageCount == pages * 2)
 
-        _ = try #require(try await Executor.run(.tool(.compressPDF), inputs: [input], context: fixtures.context).files.first)
+        // Compression has its own tests (PDFFidelityTests); a text-only PDF has nothing to squeeze.
 
         // A rotated page renders landscape, not cropped.
         let image = try PDFConverter.render(try #require(PDFDocument(url: rotated)?.page(at: 0)), dpi: 72)

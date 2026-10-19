@@ -7,6 +7,10 @@ nonisolated struct Toolbox: Sendable, Equatable {
     var ffmpeg: URL?
     var ffprobe: URL?
     var cwebp: URL?
+    /// Animated WebP; installed with cwebp (`brew install webp`).
+    var img2webp: URL?
+    /// Ghostscript, for PDF compression that rivals Acrobat's.
+    var ghostscript: URL?
     var pages: URL?
     var keynote: URL?
     var numbers: URL?
@@ -30,6 +34,8 @@ nonisolated struct Toolbox: Sendable, Equatable {
             ffmpeg: tool("ffmpeg"),
             ffprobe: tool("ffprobe"),
             cwebp: tool("cwebp"),
+            img2webp: tool("img2webp"),
+            ghostscript: tool("gs"),
             pages: app("com.apple.iWork.Pages"),
             keynote: app("com.apple.iWork.Keynote"),
             numbers: app("com.apple.iWork.Numbers")

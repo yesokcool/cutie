@@ -55,8 +55,10 @@ struct SettingsView: View {
             Section {
                 HelperRow(name: "ffmpeg", unlocks: "MP3, OGG, Opus, WMA, MKV, WebM, AVI and WMV",
                           found: core.toolbox.ffmpeg != nil, install: "brew install ffmpeg")
-                HelperRow(name: "cwebp", unlocks: "WebP images",
+                HelperRow(name: "cwebp", unlocks: "WebP images, animated ones too",
                           found: core.toolbox.cwebp != nil, install: "brew install webp")
+                HelperRow(name: "Ghostscript", unlocks: "Smaller compressed PDFs",
+                          found: core.toolbox.ghostscript != nil, install: "brew install ghostscript")
                 HelperRow(name: "Pages", unlocks: "Pages documents", found: core.toolbox.pages != nil)
                 HelperRow(name: "Keynote", unlocks: "Keynote and PowerPoint slides", found: core.toolbox.keynote != nil)
                 HelperRow(name: "Numbers", unlocks: "Numbers and XLS spreadsheets", found: core.toolbox.numbers != nil)

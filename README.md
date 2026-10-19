@@ -41,11 +41,16 @@ the same key to close. The keys can be changed in Settings.
 ## What it converts
 
 - **Images:** JPG, PNG, HEIC, AVIF, TIFF, GIF, BMP, PDF; also reads SVG,
-  WebP and camera RAW. WebP output needs `cwebp`.
+  WebP and camera RAW. WebP output needs `cwebp`. Colour profiles (Display
+  P3, CMYK where the format allows), 16-bit depth, DPI, camera metadata
+  (EXIF, GPS, XMP) and animation carry over; an HDR photo keeps its gain map
+  in JPG, HEIC and AVIF and is tone-mapped for the rest. Damaged or
+  half-downloaded images are refused instead of converted.
 - **Video and audio:** MP4, MOV, GIF, M4A, WAV, AIFF, FLAC. With ffmpeg:
   MP3, OGG, Opus, WMA, MKV, WebM, AVI, WMV.
 - **PDF** to Word, plain text, Markdown, RTF, HTML, EPUB, PowerPoint, or
-  JPG/PNG pages. Scanned PDFs are read with Live Text.
+  JPG/PNG pages (the crop box, at 300 DPI). Scanned pages are read with Live
+  Text, page by page, in reading order.
 - **Documents:** Word, Markdown, plain text, RTF, HTML, EPUB, ODT, PDF.
 - **Spreadsheets:** Excel, CSV, TSV, ODS, PDF.
 - **Subtitles:** SRT and VTT.
@@ -55,8 +60,11 @@ the same key to close. The keys can be changed in Settings.
 
 **Tools** include compress, half size, rotate, flip, square crop, black and
 white, remove background, get text (Live Text), remove metadata, images to
-one PDF, split / merge / rotate PDFs, trim, mute, get audio, 720p, snapshot,
-even out volume, word count, zip, extract and checksum.
+one PDF, split / merge / rotate PDFs, make a scanned PDF searchable, trim,
+mute, get audio, 720p, snapshot, even out volume, word count, zip, extract
+and checksum. Image tools keep the file's format, colour, depth, HDR and
+animation; a JPEG's rotate, flip and metadata removal never re-compress it.
+Merged PDFs get a bookmark per file holding its own bookmarks.
 
 ## Helpers
 
@@ -65,8 +73,9 @@ text system, bsdtar). A few slices need a helper, and only show up when it's
 installed:
 
 ```sh
-brew install ffmpeg   # more audio and video formats
-brew install webp     # WebP output
+brew install ffmpeg        # more audio and video formats
+brew install webp          # WebP output, animated too
+brew install ghostscript   # smaller compressed PDFs
 ```
 
 Pages, Keynote and Numbers (free on the Mac App Store) add their formats.

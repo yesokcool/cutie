@@ -6,7 +6,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
     case compressImage, resizeImage, rotateImage, flipImage, grayscale, cropSquare
     case removeBackground, extractText, stripMetadata, combineToPDF
     // PDF
-    case compressPDF, splitPDF, mergePDFs, rotatePDF
+    case compressPDF, splitPDF, mergePDFs, rotatePDF, makeSearchable
     // Video & audio
     case compressVideo, trimMedia, muteVideo, extractAudio, rotateVideo, resizeVideo, snapshot
     case compressAudio, mergeAudio, normalizeAudio
@@ -27,6 +27,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
         case .extractText: "Get Text"
         case .stripMetadata: "Remove Metadata"
         case .combineToPDF: "Combine to PDF"
+        case .makeSearchable: "Make Searchable"
         case .splitPDF: "Split Pages"
         case .mergePDFs, .mergeAudio: "Merge"
         case .trimMedia: "Trim"
@@ -52,6 +53,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
         case .cropSquare: "crop"
         case .removeBackground: "person.crop.rectangle"
         case .extractText: "text.viewfinder"
+        case .makeSearchable: "text.magnifyingglass"
         case .stripMetadata: "eye.slash"
         case .combineToPDF, .mergePDFs: "doc.on.doc"
         case .splitPDF: "square.split.2x1"
@@ -78,7 +80,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
         case .grayscale: "Removing color"
         case .cropSquare: "Cropping"
         case .removeBackground: "Removing the background"
-        case .extractText: "Reading text"
+        case .extractText, .makeSearchable: "Reading text"
         case .stripMetadata: "Removing metadata"
         case .combineToPDF: "Combining"
         case .splitPDF: "Splitting"
@@ -106,6 +108,7 @@ nonisolated enum Tool: String, CaseIterable, Sendable, Hashable {
         case .cropSquare: " square"
         case .removeBackground: " cutout"
         case .stripMetadata: " clean"
+        case .makeSearchable: " searchable"
         case .trimMedia: " trimmed"
         case .muteVideo: " muted"
         case .resizeVideo: " 720p"

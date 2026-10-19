@@ -26,9 +26,8 @@
 > are not, and some paths lose data without saying so. The goal is output a
 > professional would trust. In order of impact:
 
-- [ ] **Never report a broken result as done.** Check
-      `CGImageSourceGetStatusAtIndex` (a truncated JPEG still makes a PNG,
-      `ImageConverter.swift:17-36`); fail when ffmpeg's output is much shorter
+- [ ] **Never report a broken result as done.** Images are done
+      (`FileIntegrity`; the same box walk fits MP4/MOV). Fail when ffmpeg's output is much shorter
       than the input (`FFmpeg.swift:36-49`); show the useful stderr line, not
       the last (`Shell.swift:13`); drop the 5000-page cap
       (`PDFRenderer.swift:21`); render off the main thread.
@@ -49,16 +48,17 @@
       (`MediaTools.swift:117-122`).
 - [ ] **Keep video metadata** (capture date, GPS) on Compress/Mute/Rotate:
       copy `asset.metadata` (`MediaTools.swift:37-46,62-77`).
-- [ ] **Images:** lossless rotate/flip/strip via
-      `CGImageDestinationCopyImageSource`; tools keep the source colour space
-      and bit depth (`ImageConverter.swift:131-137`); HDR gain maps kept, PQ
-      tone-mapped for SDR targets; every frame of an animation (`:31`).
-- [ ] **PDF:** render the CropBox, not the MediaBox (`PDFConverter.swift:15,26`);
-      JPEGs go into PDFs as JPEG (Combine made 176 KB into 1.16 MB); keep
-      title/author and bookmarks on merge/split; OCR per page; Vision
-      `RecognizeDocumentsRequest` for reading order and tables (OCR sorts by Y
-      only, so columns interleave, `ImageTools.swift:79`). Compress saves 0%
-      today (`PDFConverter.swift:70-74`).
+- [x] **Images** (2026-10-19): truncated files refused (`FileIntegrity`);
+      lossless JPEG rotate/flip/strip; tools keep colour space and depth;
+      gain maps kept in JPG/HEIC/AVIF, PQ tone-mapped for SDR; every frame of
+      GIF/APNG/WebP animations; DPI and XMP carried over; lossless sources make
+      lossless WebP.
+- [x] **PDF** (2026-10-19): CropBox renders; JPEGs go into PDFs as JPEG;
+      merge keeps title and a bookmark per file with its own bookmarks; split
+      keeps title/author; OCR per page in reading order
+      (`RecognizeDocumentsRequest`); Compress via Ghostscript or a Quartz
+      filter, refusing when it can't shrink; new **Make Searchable** tool
+      (invisible text layer, rotation, links and bookmarks kept).
 - [ ] **Office documents:** route DOCX→PDF through Pages and XLSX→PDF through
       Numbers when installed (`Executor.swift:53,64`); LibreOffice
       (`soffice --headless`) and pandoc as detected helpers for real layout,

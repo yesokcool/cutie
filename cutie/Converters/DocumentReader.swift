@@ -22,7 +22,7 @@ enum DocumentReader {
             let book = try await EPUB.read(url, scratch: scratch)
             return try fromHTML(book.html, baseURL: book.folder)
         case "pdf":
-            return try pdfText(url)
+            return try await pdfText(url)
         case "pages":
             let docx = scratch.file(UUID().uuidString + ".docx")
             try await IWork.export(url, with: .pages, to: .docx, at: docx, toolbox: context.toolbox)
@@ -85,20 +85,24 @@ enum DocumentReader {
         throw CutieError("This clipping has no text.")
     }
 
-    /// Every page's text, pages separated by page breaks.
-    static func pdfText(_ url: URL) throws -> NSAttributedString {
-        guard let document = PDFDocument(url: url) else { throw CutieError("Couldn't open this PDF.") }
-        if document.isLocked { throw CutieError("This PDF is locked with a password.") }
+    /// Every page's text, pages separated by page breaks. Pages without text
+    /// (scans, photos of pages) are read with Live Text, one by one, so a PDF
+    /// mixing typed and scanned pages loses nothing.
+    static func pdfText(_ url: URL) async throws -> NSAttributedString {
+        let document = try PDFConverter.open(url)
         let result = NSMutableAttributedString()
         for index in 0..<document.pageCount {
-            guard let page = document.page(at: index), let text = page.attributedString else { continue }
+            try Task.checkCancellation()
+            guard let page = document.page(at: index) else { continue }
             if result.length > 0 { result.append(NSAttributedString(string: "\u{0C}")) }
-            result.append(text)
+            if let text = page.attributedString, !text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                result.append(text)
+            } else {
+                result.append(plain(try await PDFConverter.text(of: page)))
+            }
         }
-        if result.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            // A scan: read the pages with Live Text instead.
-            let text = try PDFConverter.recognizedText(document)
-            return plain(text)
+        guard !result.string.trimmingCharacters(in: .whitespacesAndNewlines.union(["\u{0C}"])).isEmpty else {
+            throw CutieError("This PDF has no text.")
         }
         return result
     }

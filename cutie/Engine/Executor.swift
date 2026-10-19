@@ -118,11 +118,7 @@ nonisolated enum Executor {
         switch tool {
         case .combineToPDF:
             let target = scratch.file("Combined.pdf")
-            let images = try inputs.map { url -> (CGImage, Double) in
-                let loaded = try ImageConverter.load(url)
-                return (loaded.image, loaded.dpi)
-            }
-            try ImageConverter.writePDF(images, to: target)
+            try ImageConverter.writePDF(from: inputs, to: target, quality: context.imageQuality)
             return JobOutcome(files: [try context.output.place(target, named: "Combined.pdf", beside: first)])
         case .mergePDFs:
             let target = scratch.file("Merged.pdf")
@@ -164,34 +160,17 @@ nonisolated enum Executor {
 
         switch tool {
         case .compressImage, .resizeImage, .rotateImage, .flipImage, .grayscale, .cropSquare, .stripMetadata, .removeBackground:
-            let loaded = try ImageConverter.load(input)
-            var format = ImageConverter.outputFormat(for: input, toolbox: context.toolbox)
-            var metadata = loaded.metadata
-            var quality = context.imageQuality
-            let image: CGImage
-            switch tool {
-            case .compressImage: image = loaded.image; quality = min(quality, 0.6)
-            case .resizeImage: image = try ImageTools.halfSize(loaded.image)
-            case .rotateImage: image = try ImageTools.rotated(loaded.image)
-            case .flipImage: image = try ImageTools.flipped(loaded.image)
-            case .grayscale: image = try ImageTools.grayscale(loaded.image)
-            case .cropSquare: image = try ImageTools.squared(loaded.image)
-            case .stripMetadata: image = loaded.image; metadata = [:]
-            default: image = try ImageTools.removingBackground(loaded.image); format = .png; metadata = [:]
-            }
-            target = work.appending(path: "\(base)\(tool.suffix).\(format.fileExtension)")
-            if format == .webp {
-                try await ImageConverter.writeWebP(image, to: target, quality: quality, cwebp: context.toolbox.cwebp, scratch: scratch)
-            } else {
-                try ImageConverter.write(image, as: format, to: target, quality: quality, metadata: metadata, dpi: loaded.dpi)
-            }
+            target = try await imageTool(tool, input: input, in: work, context: context, scratch: scratch)
         case .extractText:
             target = work.appending(path: "\(base).txt")
-            let text = try ImageTools.recognizedText(try ImageConverter.load(input).image)
+            let text = try await ImageTools.recognizedText(try ImageConverter.load(input).image)
             try Data(text.utf8).write(to: target)
         case .compressPDF:
             target = work.appending(path: "\(base)\(tool.suffix).pdf")
-            try PDFConverter.compress(input, to: target)
+            try await PDFConverter.compress(input, to: target, toolbox: context.toolbox)
+        case .makeSearchable:
+            target = work.appending(path: "\(base)\(tool.suffix).pdf")
+            try await PDFConverter.makeSearchable(input, to: target, context: context)
         case .splitPDF:
             target = work.appending(path: "\(base) (pages)", directoryHint: .isDirectory)
             try PDFConverter.split(input, into: target, context: context)
@@ -241,6 +220,60 @@ nonisolated enum Executor {
             throw CutieError("\(tool.title) doesn't work on this file.")
         }
         return try context.output.place(target, named: target.lastPathComponent, beside: input)
+    }
+
+    /// An image tool, keeping everything the tool doesn't change: format,
+    /// colour space, bit depth, HDR, metadata and animation. A JPEG's rotate,
+    /// flip and metadata removal only rewrite tags, so the photo isn't re-compressed.
+    static func imageTool(_ tool: Tool, input: URL, in work: URL, context: JobContext, scratch: Scratch) async throws -> URL {
+        let format = tool == .removeBackground ? Format.png : ImageConverter.outputFormat(for: input, toolbox: context.toolbox)
+        let target = work.appending(path: "\(Output.baseName(of: input))\(tool.suffix).\(format.fileExtension)")
+
+        let turn: ImageConverter.OrientationChange? = switch tool {
+        case .rotateImage: .turnClockwise
+        case .flipImage: .mirror
+        default: nil
+        }
+        if turn != nil || tool == .stripMetadata,
+           try ImageConverter.losslessEdit(input, to: target, turn: turn, stripMetadata: tool == .stripMetadata) {
+            return target
+        }
+
+        let transform: (CGImage) throws -> CGImage = switch tool {
+        case .resizeImage: ImageTools.halfSize
+        case .rotateImage: ImageTools.rotated
+        case .flipImage: ImageTools.flipped
+        case .grayscale: ImageTools.grayscale
+        case .cropSquare: ImageTools.squared
+        default: { $0 }
+        }
+        let lossless = ImageConverter.isLossless(input) && tool != .compressImage
+        if tool != .removeBackground, ImageConverter.animatedFormats.contains(format),
+           format != .webp || context.toolbox.img2webp != nil,
+           var animation = try ImageConverter.animation(input) {
+            animation.frames = try animation.frames.map(transform)
+            try await ImageConverter.writeAnimation(animation, as: format, to: target, quality: context.imageQuality,
+                                                    lossless: lossless, toolbox: context.toolbox, scratch: scratch)
+            return target
+        }
+
+        var loaded = try ImageConverter.load(input, keepHDR: ImageConverter.gainMapFormats.contains(format))
+        var quality = context.imageQuality
+        switch tool {
+        case .compressImage: quality = min(quality, 0.6)
+        case .stripMetadata: loaded.metadata = nil
+        case .removeBackground:
+            loaded.image = try ImageTools.removingBackground(loaded.image)
+            loaded.metadata = nil
+        default: loaded.image = try transform(loaded.image)
+        }
+        if format == .webp {
+            try await ImageConverter.writeWebP(loaded.image, to: target, quality: quality, lossless: lossless,
+                                               metadata: loaded.metadata, cwebp: context.toolbox.cwebp, scratch: scratch)
+        } else {
+            try ImageConverter.write(loaded, as: format, to: target, quality: quality)
+        }
+        return target
     }
 
     // MARK: - Helpers

@@ -96,7 +96,7 @@ nonisolated enum Catalog {
                           .removeBackground, .extractText, .stripMetadata]
                 if many { tools.append(.combineToPDF) }
             case .pdf:
-                tools += [.compressPDF, .splitPDF, .rotatePDF]
+                tools += [.compressPDF, .splitPDF, .rotatePDF, .makeSearchable]
                 if many { tools.append(.mergePDFs) }
             case .video:
                 let native = extensions.allSatisfy(nativeVideo.contains)

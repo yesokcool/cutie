@@ -26,15 +26,19 @@ detection works, and every gotcha so far).
   slices each wheel shows for these files and this Mac's helpers), `Executor`
   (runs a Convert or Tools slice, `@concurrent`), `Output` + `Scratch` (where
   results go), `Shell` (runs ffmpeg / bsdtar / zip / osascript), `Toolbox`
-  (which helpers are installed), `Preferences` (every UserDefaults key).
-- **Converters/**: `ImageConverter` (ImageIO), `MediaConverter` (AVFoundation
+  (which helpers are installed), `FileIntegrity` (spots cut-off files by their
+  container structure), `Preferences` (every UserDefaults key).
+- **Converters/**: `ImageConverter` (ImageIO; keeps colour space, depth,
+  HDR gain maps, metadata, animation; lossless JPEG edits), `MediaConverter` (AVFoundation
   first, `FFmpeg` otherwise), `DocumentReader` / `DocumentWriter` (Cocoa text
   system; main actor because HTML import uses WebKit), `Markdown` (Foundation's
   CommonMark parser → HTML; attributed string → Markdown), `HTML`, `EPUB`,
-  `PDFRenderer`, `PDFConverter`, `PowerPoint` (PDF → PPTX by hand), `Spreadsheet`
+  `PDFRenderer`, `PDFConverter` (crop-box renders, Ghostscript/Quartz compression,
+  bookmark-keeping merge, Make Searchable), `PowerPoint` (PDF → PPTX by hand), `Spreadsheet`
   + `CSV` / `XLSX` / `ODS` (written and read directly), `Subtitles`,
   `ArchiveConverter` (bsdtar), `IWork` (Pages/Keynote/Numbers via AppleScript).
-- **Tools/**: `ImageTools` (incl. Vision background removal and Live Text),
+- **Tools/**: `ImageTools` (format-preserving pixel tools, Vision background
+  removal, Live Text via `RecognizeDocumentsRequest` for reading order),
   `MediaTools`.
 - **Wheel/**: `DragMonitor` (notices file drags + key taps), `WheelController`
   (opens/switches/closes), `WheelPanel` + `WheelDropView` (the see-through,
@@ -91,6 +95,11 @@ keys with `@AppStorage`. Never rename a key (it silently resets the setting).
 - Open at login (SMAppService) and the glass look in light and dark.
 
 ## Decision log
+- **2026-10-19** Pro-grade pass (TODO.md): output must be something a
+  professional would trust. Phase 1 done for images and PDF: nothing about a
+  file changes unless the tool is about that thing, and a damaged input is
+  refused, never "converted". Fidelity tests (`ImageFidelityTests`,
+  `PDFFidelityTests`, fixtures in `FidelityFixtures`) hold the line.
 - **2026-10-19** Open source under MIT, with signing values moved out of the
   project file into xcconfigs so a fresh clone builds without a team.
 - **2026-10-18** Unsandboxed app instead of App Store-ready: it must
