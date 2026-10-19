@@ -143,9 +143,7 @@ nonisolated enum PDFToWord {
                 drafts.append(Draft(lines: [line]))
                 continue
             }
-            line.glyphs.removeFirst(marker.glyphCount)
-            while line.glyphs.first?.isSpace == true { line.glyphs.removeFirst() }
-            line = Line(glyphs: line.glyphs)
+            line = dropping(marker.length, from: line)
             let indent = max(body.size * 1.5, 12)
             let item: WordDocument.ListItem
             if let list = open, marker.x > list.x + body.size * 0.75 {
@@ -221,8 +219,44 @@ nonisolated enum PDFToWord {
     struct Marker {
         var kind: WordDocument.ListKind
         var number: Int?
-        var glyphCount: Int
+        /// Characters the marker takes at the start of the line (a glyph can
+        /// hold a whole line: Live Text's reading of a scanned page).
+        var length: Int
         var x: Double
+    }
+
+    /// `line` without its first `count` characters and the spaces after them.
+    /// A glyph holding several characters is cut, its frame shrunk to match.
+    static func dropping(_ count: Int, from line: Line) -> Line {
+        var glyphs = line.glyphs
+        func cut(_ glyph: Glyph, _ characters: Int) -> Glyph {
+            var glyph = glyph
+            let length = glyph.text.count
+            glyph.text = String(glyph.text.dropFirst(characters))
+            if length > 0, !glyph.frame.isNull {
+                let removed = glyph.frame.width * Double(characters) / Double(length)
+                glyph.frame = CGRect(x: glyph.frame.minX + removed, y: glyph.frame.minY,
+                                     width: glyph.frame.width - removed, height: glyph.frame.height)
+            }
+            return glyph
+        }
+        var remaining = count
+        while remaining > 0, let first = glyphs.first {
+            if first.text.count <= remaining {
+                remaining -= first.text.count
+                glyphs.removeFirst()
+            } else {
+                glyphs[0] = cut(first, remaining)
+                remaining = 0
+            }
+        }
+        while let first = glyphs.first {
+            if first.isSpace { glyphs.removeFirst(); continue }
+            let spaces = first.text.prefix { $0.isWhitespace }.count
+            if spaces > 0 { glyphs[0] = cut(first, spaces) }
+            break
+        }
+        return Line(glyphs: glyphs)
     }
 
     /// A bullet or a number at the start of a line: "• ", "– ", "1. ", "a) ", "iv. ".
@@ -235,7 +269,7 @@ nonisolated enum PDFToWord {
             guard let next = rest.first, next == " " || next == "\t" || next == "\u{00A0}",
                   rest.drop(while: { $0.isWhitespace }).first != nil else { return nil }
             if character == "-" || character == "*", line.glyphs.count < 3 { return nil }
-            return Marker(kind: .bullet, number: nil, glyphCount: 1, x: first.frame.minX)
+            return Marker(kind: .bullet, number: nil, length: 1, x: first.frame.minX)
         }
         let patterns: [(String, WordDocument.ListKind)] = [
             (#"^\(?(\d{1,3})[.)]\s+\S"#, .decimal),
@@ -257,7 +291,7 @@ nonisolated enum PDFToWord {
             guard let number else { continue }
             // Marker = everything up to the first space.
             let markerLength = text.prefix { !$0.isWhitespace }.count
-            return Marker(kind: kind, number: number, glyphCount: min(markerLength, line.glyphs.count - 1), x: first.frame.minX)
+            return Marker(kind: kind, number: number, length: markerLength, x: first.frame.minX)
         }
         return nil
     }
@@ -525,10 +559,28 @@ nonisolated enum PDFToWord {
         }
         let pageNumber = #"^(page\s*)?#(\s*(of|/)\s*#)?$|^[-–—]\s*#\s*[-–—]$"#
         let needed = max(2, (layouts.count + 1) / 2)
+        // A page number is a number-shaped line in the same band on several
+        // pages that counts with them (3, 4, 5 on pages 1, 2, 3 is fine). A
+        // year in a one-page letterhead isn't one.
+        var pageNumbers = Set<[Int]>()
+        if layouts.count >= 2 {
+            let shaped = candidates.filter { $0.key.range(of: pageNumber, options: .regularExpression) != nil }
+            for group in Dictionary(grouping: shaped, by: { "\($0.top) \($0.key)" }).values {
+                var byOffset: [Int: [Candidate]] = [:]
+                for candidate in group {
+                    let text = layouts[candidate.page].lines[candidate.line].text
+                    guard let range = text.range(of: #"\d+"#, options: .regularExpression), let number = Int(text[range]) else { continue }
+                    byOffset[number - candidate.page, default: []].append(candidate)
+                }
+                if let counting = byOffset.values.max(by: { $0.count < $1.count }), counting.count >= needed {
+                    for candidate in counting { pageNumbers.insert([candidate.page, candidate.line]) }
+                }
+            }
+        }
         var header: WordDocument.Paragraph?, footer: WordDocument.Paragraph?
         var remove: [Int: Set<Int>] = [:]
         for candidate in candidates {
-            let isNumber = candidate.key.range(of: pageNumber, options: .regularExpression) != nil
+            let isNumber = pageNumbers.contains([candidate.page, candidate.line])
             let repeats = candidates.filter { $0.key == candidate.key && $0.top == candidate.top }.count
             guard isNumber || (layouts.count >= 2 && repeats >= needed) else { continue }
             remove[candidate.page, default: []].insert(candidate.line)

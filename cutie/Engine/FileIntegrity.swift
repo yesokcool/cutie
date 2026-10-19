@@ -23,12 +23,17 @@ nonisolated enum FileIntegrity {
     }
 
     /// Walks the segments to the end-of-image marker. Thumbnails sit inside
-    /// APP segments, so their own end markers are skipped by length.
+    /// APP segments, so their own end markers are skipped by length. Stray
+    /// bytes between segments (some cameras pad with zeros) are skipped the
+    /// way libjpeg does, with a warning rather than a failure.
     static func jpegIsComplete(_ data: Data) -> Bool {
         let base = data.startIndex
         var index = 2
         while index + 1 < data.count {
-            guard data[base + index] == 0xFF else { return false }
+            guard data[base + index] == 0xFF else {
+                index += 1
+                continue
+            }
             let marker = data[base + index + 1]
             switch marker {
             case 0xD9:
@@ -68,9 +73,44 @@ nonisolated enum FileIntegrity {
         return false
     }
 
-    /// A GIF ends with a 0x3B trailer; some writers pad a few bytes after it.
+    /// Walks a GIF's blocks. It's complete when every frame's data is all
+    /// there; the 0x3B trailer itself is optional (old writers skip it, and
+    /// browsers don't mind), padding after it is fine.
     static func gifIsComplete(_ data: Data) -> Bool {
-        data.suffix(8).contains(0x3B)
+        let base = data.startIndex
+        func byte(_ offset: Int) -> Int? { offset < data.count ? Int(data[base + offset]) : nil }
+        /// Data sub-blocks: length bytes and their data, ending in a 0 length.
+        func skipSubBlocks(from offset: Int) -> Int? {
+            var offset = offset
+            while let length = byte(offset) {
+                offset += 1
+                if length == 0 { return offset }
+                offset += length
+            }
+            return nil
+        }
+        guard let flags = byte(10) else { return false }
+        var index = 13 + (flags & 0x80 != 0 ? 3 << ((flags & 0x07) + 1) : 0)
+        var frames = 0
+        while let introducer = byte(index) {
+            switch introducer {
+            case 0x3B:
+                return true
+            case 0x21:
+                guard byte(index + 1) != nil, let next = skipSubBlocks(from: index + 2) else { return false }
+                index = next
+            case 0x2C:
+                guard let local = byte(index + 9) else { return false }
+                index += 10 + (local & 0x80 != 0 ? 3 << ((local & 0x07) + 1) : 0)
+                guard byte(index) != nil, let next = skipSubBlocks(from: index + 1) else { return false }
+                index = next
+                frames += 1
+            default:
+                // Junk after the last frame: whatever came before is whole.
+                return frames > 0
+            }
+        }
+        return frames > 0
     }
 
     static func riffSize(_ data: Data) -> Int {

@@ -73,13 +73,16 @@ nonisolated enum ImageConverter {
 
     static func load(from source: CGImageSource, index: Int = 0, keepHDR: Bool) throws -> Loaded {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
-        let hdr = isHDR(source, index: index)
-        var options: [CFString: Any] = [:]
-        if hdr {
-            options[kCGImageSourceDecodeRequest] = keepHDR ? kCGImageSourceDecodeToHDR : kCGImageSourceDecodeToSDR
-        }
-        guard let decoded = CGImageSourceCreateImageAtIndex(source, index, options as CFDictionary) else {
+        guard var decoded = CGImageSourceCreateImageAtIndex(source, index, nil) else {
             throw CutieError("Couldn't open this image.")
+        }
+        // Only an HDR photo needs a second, tone-mapped (or HDR) decode request.
+        let hdr = isHDR(source, index: index, image: decoded, properties: properties)
+        if hdr {
+            let request = keepHDR ? kCGImageSourceDecodeToHDR : kCGImageSourceDecodeToSDR
+            if let requested = CGImageSourceCreateImageAtIndex(source, index, [kCGImageSourceDecodeRequest: request] as CFDictionary) {
+                decoded = requested
+            }
         }
         let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
         let image = orientation == 1 ? decoded : try upright(decoded, orientation: orientation)
@@ -90,15 +93,16 @@ nonisolated enum ImageConverter {
     }
 
     /// An HDR photo: a gain map beside the SDR image, or HDR (PQ/HLG) pixels.
-    static func isHDR(_ source: CGImageSource, index: Int = 0) -> Bool {
+    /// Pass the image (and properties) when already at hand, so nothing is made twice.
+    static func isHDR(_ source: CGImageSource, index: Int = 0, image: CGImage? = nil, properties: [CFString: Any]? = nil) -> Bool {
+        let properties = properties ?? CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
+        if let depth = properties[kCGImagePropertyDepth] as? Int, depth > 8,
+           let space = (image ?? CGImageSourceCreateImageAtIndex(source, index, nil))?.colorSpace,
+           CGColorSpaceUsesITUR_2100TF(space) {
+            return true
+        }
         for type in [kCGImageAuxiliaryDataTypeISOGainMap, kCGImageAuxiliaryDataTypeHDRGainMap] {
             if CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, index, type) != nil { return true }
-        }
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
-        if let depth = properties[kCGImagePropertyDepth] as? Int, depth > 8,
-           let image = CGImageSourceCreateImageAtIndex(source, index, nil),
-           let space = image.colorSpace, CGColorSpaceUsesITUR_2100TF(space) {
-            return true
         }
         return false
     }
@@ -274,9 +278,12 @@ nonisolated enum ImageConverter {
                 orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
                 dpi.width = properties[kCGImagePropertyDPIWidth] as? Double ?? 72
                 dpi.height = properties[kCGImagePropertyDPIHeight] as? Double ?? dpi.width
-                let decode: [CFString: Any] = isHDR(source) ? [kCGImageSourceDecodeRequest: kCGImageSourceDecodeToSDR] : [:]
-                guard let decoded = CGImageSourceCreateImageAtIndex(source, 0, decode as CFDictionary) else {
+                guard var decoded = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                     throw CutieError("Couldn't open \(file.lastPathComponent).")
+                }
+                if isHDR(source, image: decoded, properties: properties),
+                   let sdr = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceDecodeRequest: kCGImageSourceDecodeToSDR] as CFDictionary) {
+                    decoded = sdr
                 }
                 // ImageIO keeps a JPEG's compressed data with the image, and Quartz
                 // writes that straight into the PDF; other lossy formats become JPEG first.

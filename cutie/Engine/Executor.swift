@@ -73,7 +73,8 @@ nonisolated enum Executor {
             }
             try await IWork.export(input, with: .keynote, to: format, at: target, toolbox: context.toolbox)
         case .spreadsheet:
-            if ["numbers", "xls"].contains(ext), [.pdf, .xlsx, .csv].contains(format) {
+            // Numbers opens .numbers, and .xls when LibreOffice isn't there to read it.
+            if ext == "numbers" || (ext == "xls" && context.toolbox.soffice == nil), [.pdf, .xlsx, .csv].contains(format) {
                 try await IWork.export(input, with: .numbers, to: format, at: target, toolbox: context.toolbox)
             } else {
                 let book = try await Spreadsheet.read(input, scratch: scratch, toolbox: context.toolbox)

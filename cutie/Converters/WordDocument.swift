@@ -201,8 +201,8 @@ nonisolated struct WordDocument {
         var pictures: [Picture] = []
         var pictureIDs: [String] = []
         var links: [URL: String] = [:]
-        /// List id → kind and start, for numbering.xml.
-        var lists: [Int: (kind: ListKind, start: Int)] = [:]
+        /// List id → its kinds by level and its start, for numbering.xml.
+        var lists: [Int: ListNumbering] = [:]
         private var nextID = 100
 
         init(document: WordDocument) { self.document = document }
@@ -253,7 +253,9 @@ nonisolated struct WordDocument {
             if let list = paragraph.list {
                 if paragraph.heading == nil { properties += #"<w:pStyle w:val="ListParagraph"/>"# }
                 properties += #"<w:numPr><w:ilvl w:val="\#(list.level)"/><w:numId w:val="\#(list.list)"/></w:numPr>"#
-                if lists[list.list] == nil { lists[list.list] = (list.kind, list.start) }
+                var numbering = lists[list.list] ?? ListNumbering(start: list.start)
+                if numbering.kinds[list.level] == nil { numbering.kinds[list.level] = list.kind }
+                lists[list.list] = numbering
             }
             if let tab = paragraph.rightTab {
                 properties += #"<w:tabs><w:tab w:val="right" w:leader="dot" w:pos="\#(twips(tab))"/></w:tabs>"#
@@ -443,26 +445,58 @@ nonisolated struct WordDocument {
         return xml
     }
 
-    private static func numbering(lists: [Int: (kind: ListKind, start: Int)]) -> String {
+    /// How one list numbers its levels: the kind seen first at each level.
+    struct ListNumbering {
+        var start: Int
+        var kinds: [Int: ListKind] = [:]
+        var kind: ListKind { kinds[0] ?? kinds.min { $0.key < $1.key }?.value ?? .bullet }
+    }
+
+    /// A level's number format and text. A list nests in its kind's usual
+    /// pattern (1. → a. → i.); `own` uses the kind's own format at that level.
+    private static func levelFormat(_ kind: ListKind, level: Int, own: Bool) -> (format: String, text: String) {
+        let step = own ? 0 : level % 3
+        return switch kind {
+        case .bullet: ("bullet", ["•", "◦", "▪"][level % 3])
+        case .decimal: (["decimal", "lowerLetter", "lowerRoman"][step], "%\(level + 1).")
+        case .lowerLetter: (["lowerLetter", "lowerRoman", "decimal"][step], "%\(level + 1).")
+        case .upperLetter: (["upperLetter", "decimal", "lowerLetter"][step], "%\(level + 1).")
+        case .lowerRoman: (["lowerRoman", "lowerLetter", "decimal"][step], "%\(level + 1).")
+        }
+    }
+
+    private static func abstractNum(_ id: Int, _ format: (Int) -> (format: String, text: String)) -> String {
+        var xml = #"<w:abstractNum w:abstractNumId="\#(id)"><w:multiLevelType w:val="hybridMultilevel"/>"#
+        for level in 0..<9 {
+            let (numFmt, text) = format(level)
+            let left = 720 + level * 360
+            xml += #"<w:lvl w:ilvl="\#(level)"><w:start w:val="1"/><w:numFmt w:val="\#(numFmt)"/><w:lvlText w:val="\#(XMLText.escape(text))"/>"#
+            xml += #"<w:lvlJc w:val="left"/><w:pPr><w:ind w:left="\#(left)" w:hanging="360"/></w:pPr></w:lvl>"#
+        }
+        return xml + "</w:abstractNum>"
+    }
+
+    private static func numbering(lists: [Int: ListNumbering]) -> String {
         var xml = #"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">"#
         for kind in ListKind.allCases {
-            xml += #"<w:abstractNum w:abstractNumId="\#(kind.rawValue)"><w:multiLevelType w:val="hybridMultilevel"/>"#
-            for level in 0..<9 {
-                let (format, text): (String, String) = switch kind {
-                case .bullet: ("bullet", ["•", "◦", "▪"][level % 3])
-                case .decimal: (["decimal", "lowerLetter", "lowerRoman"][level % 3], "%\(level + 1).")
-                case .lowerLetter: (["lowerLetter", "lowerRoman", "decimal"][level % 3], "%\(level + 1).")
-                case .upperLetter: (["upperLetter", "decimal", "lowerLetter"][level % 3], "%\(level + 1).")
-                case .lowerRoman: (["lowerRoman", "lowerLetter", "decimal"][level % 3], "%\(level + 1).")
-                }
-                let left = 720 + level * 360
-                xml += #"<w:lvl w:ilvl="\#(level)"><w:start w:val="1"/><w:numFmt w:val="\#(format)"/><w:lvlText w:val="\#(XMLText.escape(text))"/>"#
-                xml += #"<w:lvlJc w:val="left"/><w:pPr><w:ind w:left="\#(left)" w:hanging="360"/></w:pPr></w:lvl>"#
+            xml += abstractNum(kind.rawValue) { levelFormat(kind, level: $0, own: false) }
+        }
+        // A list whose nested items are another kind ("•" under "1.") gets its
+        // own definition, so each level shows the marker the PDF had.
+        var abstractIDs: [Int: Int] = [:]
+        for (id, list) in lists.sorted(by: { $0.key < $1.key }) {
+            let mixed = list.kinds.contains { level, kind in
+                levelFormat(kind, level: level, own: true) != levelFormat(list.kind, level: level, own: false)
             }
-            xml += "</w:abstractNum>"
+            guard mixed else { continue }
+            let abstractID = 100 + id
+            abstractIDs[id] = abstractID
+            xml += abstractNum(abstractID) { level in
+                list.kinds[level].map { levelFormat($0, level: level, own: true) } ?? levelFormat(list.kind, level: level, own: false)
+            }
         }
         for (id, list) in lists.sorted(by: { $0.key < $1.key }) {
-            xml += #"<w:num w:numId="\#(id)"><w:abstractNumId w:val="\#(list.kind.rawValue)"/>"#
+            xml += #"<w:num w:numId="\#(id)"><w:abstractNumId w:val="\#(abstractIDs[id] ?? list.kind.rawValue)"/>"#
             xml += #"<w:lvlOverride w:ilvl="0"><w:startOverride w:val="\#(max(1, list.start))"/></w:lvlOverride></w:num>"#
         }
         return xml + "</w:numbering>"

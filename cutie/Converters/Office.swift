@@ -73,7 +73,14 @@ nonisolated enum Office {
             guard ext != "numbers" else { return nil }
             switch format {
             case .pdf:
-                if let soffice = toolbox.soffice {
+                if let soffice = toolbox.soffice, ["csv", "tsv"].contains(ext) {
+                    // LibreOffice's own CSV import is comma-only and guesses the encoding;
+                    // Cutie's reader knows the separator, encoding and types, so it goes in as Excel.
+                    let book = try await Spreadsheet.read(input, scratch: scratch, toolbox: toolbox)
+                    let xlsx = try scratch.folder(UUID().uuidString).appending(path: "\(base).xlsx")
+                    try await XLSX.write(book, to: xlsx, scratch: scratch)
+                    try await LibreOffice.convert(xlsx, to: .pdf, at: target, soffice: soffice, scratch: scratch)
+                } else if let soffice = toolbox.soffice {
                     try await LibreOffice.convert(input, to: .pdf, at: target, soffice: soffice, scratch: scratch)
                 } else if toolbox.numbers != nil, ["xlsx", "xls", "csv"].contains(ext) {
                     try await IWork.export(input, with: .numbers, to: .pdf, at: target, toolbox: toolbox)
@@ -157,19 +164,32 @@ nonisolated enum Pandoc {
             throw CutieError("pandoc can't make \(format.title) files from this.")
         }
         let base = Output.baseName(of: input)
-        // The file's name stands in for a title; one in the document itself wins.
-        let metadata = scratch.file(UUID().uuidString + ".yaml")
+        // The file's name stands in for a title where one is required but never
+        // shown (an HTML page's tab, an EPUB's library entry); a title in the
+        // document itself wins. Word, ODT and HTML would print `title` as a
+        // heading the source never had, so it isn't set for them.
         let quoted = base.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        try Data("title: \"\(quoted)\"\npagetitle: \"\(quoted)\"\n".utf8).write(to: metadata)
+        let metadataText: String? = switch format {
+        case .html: "pagetitle: \"\(quoted)\"\n"
+        case .epub: "title: \"\(quoted)\"\n"
+        default: nil
+        }
 
         let work = try scratch.folder(UUID().uuidString)
         let written = work.appending(path: "\(base).\(format.fileExtension)")
         var arguments = ["--from", reader, "--to", writer, "--output", written.path,
-                         "--resource-path", input.deletingLastPathComponent().path,
-                         "--metadata-file", metadata.path]
+                         "--resource-path", input.deletingLastPathComponent().path]
+        if let metadataText {
+            let metadata = scratch.file(UUID().uuidString + ".yaml")
+            try Data(metadataText.utf8).write(to: metadata)
+            arguments += ["--metadata-file", metadata.path]
+        }
         switch format {
         case .html:
             arguments += ["--standalone", "--embed-resources"]
+        case .epub:
+            // No generated title page: the book starts where the document does.
+            arguments += ["--epub-title-page=false"]
         case .md:
             // Word's picture sizes would turn images into raw <img> tags; plain ![](…) reads everywhere.
             let filter = scratch.file(UUID().uuidString + ".lua")

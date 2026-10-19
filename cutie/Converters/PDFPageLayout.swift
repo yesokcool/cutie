@@ -552,29 +552,13 @@ nonisolated struct PDFPageLayout {
     /// many shapes together), not table rules, page borders or text boxes.
     private static func figureFrames(_ paths: [(PDFContent.PaintedPath, CGRect)], size: CGSize, avoiding: [CGRect], glyphs: [Glyph]) -> [CGRect] {
         let pageArea = size.width * size.height
-        var clusters: [(frame: CGRect, members: [PDFContent.PaintedPath])] = paths.compactMap { path, frame in
+        let kept: [(path: PDFContent.PaintedPath, frame: CGRect)] = paths.compactMap { path, frame in
             let area = frame.width * frame.height
             guard area < pageArea * 0.5, !avoiding.contains(where: { $0.insetBy(dx: -4, dy: -4).contains(frame) }) else { return nil }
-            return (frame, [path])
+            return (path, frame)
         }
-        var merged = true
-        while merged {
-            merged = false
-            var index = 0
-            while index < clusters.count {
-                var other = index + 1
-                while other < clusters.count {
-                    if clusters[index].frame.insetBy(dx: -16, dy: -16).intersects(clusters[other].frame) {
-                        clusters[index].frame = clusters[index].frame.union(clusters[other].frame)
-                        clusters[index].members += clusters[other].members
-                        clusters.remove(at: other)
-                        merged = true
-                    } else {
-                        other += 1
-                    }
-                }
-                index += 1
-            }
+        let clusters: [(frame: CGRect, members: [PDFContent.PaintedPath])] = touchingGroups(kept.map(\.frame), margin: 16).map { group in
+            (group.map { kept[$0].frame }.reduce(CGRect.null) { $0.union($1) }, group.map { kept[$0].path })
         }
         let textGlyphs = glyphs.filter { !$0.frame.isNull && !$0.isSpace }
         return clusters.compactMap { cluster in
@@ -592,6 +576,73 @@ nonisolated struct PDFPageLayout {
             guard textArea < area * 0.12, textGlyphs.isEmpty || Double(inside.count) < Double(textGlyphs.count) * 0.4 else { return nil }
             return frame
         }
+    }
+
+    /// Groups rectangles that come within `margin` of each other, then keeps
+    /// merging the groups' own bounding boxes until none touch: the same
+    /// result as merging pairs until nothing changes, without comparing every
+    /// pair (a chart can be thousands of paths). Groups come in order of their
+    /// first member.
+    static func touchingGroups(_ frames: [CGRect], margin: Double) -> [[Int]] {
+        var groups = frames.indices.map { [$0] }
+        var boxes = frames
+        let cell = 128.0
+        while true {
+            var parent = Array(boxes.indices)
+            func root(_ index: Int) -> Int {
+                var index = index
+                while parent[index] != index {
+                    parent[index] = parent[parent[index]]
+                    index = parent[index]
+                }
+                return index
+            }
+            var grid: [SIMD2<Int>: [Int]] = [:]
+            var oversized: [Int] = []
+            var merged = false
+            func join(_ index: Int, _ other: Int) {
+                let (a, b) = (root(index), root(other))
+                if a != b {
+                    parent[max(a, b)] = min(a, b)
+                    merged = true
+                }
+            }
+            for (index, box) in boxes.enumerated() {
+                guard !box.isNull, box.minX.isFinite, box.minY.isFinite, box.maxX.isFinite, box.maxY.isFinite else { continue }
+                let grown = box.insetBy(dx: -margin, dy: -margin)
+                let columns = Int((grown.minX / cell).rounded(.down))...Int((grown.maxX / cell).rounded(.down))
+                let rows = Int((grown.minY / cell).rounded(.down))...Int((grown.maxY / cell).rounded(.down))
+                // A box spanning much of the page is checked against everything directly.
+                guard columns.count * rows.count <= 64 else {
+                    oversized.append(index)
+                    continue
+                }
+                for column in columns {
+                    for row in rows {
+                        let key = SIMD2(column, row)
+                        for other in grid[key, default: []] where grown.intersects(boxes[other]) { join(index, other) }
+                        grid[key, default: []].append(index)
+                    }
+                }
+            }
+            for index in oversized {
+                let grown = boxes[index].insetBy(dx: -margin, dy: -margin)
+                for other in boxes.indices where other != index && grown.intersects(boxes[other]) { join(index, other) }
+            }
+            guard merged else { break }
+            var order: [Int] = []
+            var members: [Int: [Int]] = [:]
+            var union: [Int: CGRect] = [:]
+            for index in boxes.indices {
+                let top = root(index)
+                if members[top] == nil { order.append(top) }
+                members[top, default: []] += groups[index]
+                union[top] = (union[top] ?? .null).union(boxes[index])
+            }
+            groups = order.map { members[$0]!.sorted() }
+            boxes = order.map { union[$0]! }
+        }
+        return groups.sorted { $0[0] < $1[0] }
     }
 
     // MARK: Vision
