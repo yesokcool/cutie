@@ -32,7 +32,6 @@ struct WheelView: View {
         .scaleEffect(model.appeared ? 1 : 0.86, anchor: UnitPoint(x: 0.5, y: side / 2 / geometry.panelSize.height))
         .opacity(model.appeared ? 1 : 0)
         .animation(.spring(duration: 0.3, bounce: 0.3), value: model.appeared)
-        .animation(.snappy(duration: 0.16), value: model.highlighted)
         .animation(.snappy(duration: 0.24), value: model.wheel)
     }
 }

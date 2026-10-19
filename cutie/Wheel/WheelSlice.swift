@@ -16,22 +16,28 @@ struct WheelSlice: View {
         let labelPoint = geometry.point(for: index, radius: (geometry.innerRadius + geometry.outerRadius) / 2, center: center)
         Color.clear
             .overlay {
-                VStack(spacing: 3) {
-                    Image(systemName: item.symbol)
-                        .font(.system(size: 16, weight: .medium))
-                    Text(item.title)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
+                ZStack {
+                    // The slice under the pointer fills solid: Liquid Glass's tint is too faint
+                    // to read mid-drag, and changing it redraws the whole glass ring (lag).
+                    if highlighted {
+                        SliceShape(geometry: geometry, index: index).fill(Color.accentColor)
+                    }
+                    VStack(spacing: 3) {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 16, weight: .medium))
+                        Text(item.title)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.75)
+                    }
+                    .frame(width: 78)
+                    .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    .position(labelPoint)
                 }
-                .frame(width: 78)
-                .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                .position(labelPoint)
             }
-            .cutieGlass(in: SliceShape(geometry: geometry, index: index), tint: highlighted ? .accentColor : nil)
-            .scaleEffect(highlighted ? 1.06 : 1)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(highlighted ? .isSelected : [])
+            .cutieGlass(in: SliceShape(geometry: geometry, index: index))
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(highlighted ? .isSelected : [])
     }
 }

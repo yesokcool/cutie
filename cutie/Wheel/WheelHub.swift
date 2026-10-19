@@ -7,7 +7,7 @@ struct WheelHub: View {
 
     var body: some View {
         VStack(spacing: 3) {
-            FileIcon(urls: model.inputs)
+            FileIcon(image: model.icon)
                 .frame(width: 34, height: 34)
             Text(model.highlightedItem?.title ?? model.wheel.title)
                 .font(.system(size: 13, weight: .semibold))

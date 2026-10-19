@@ -6,7 +6,11 @@ import Observation
 final class WheelModel {
     var wheel: Wheel = .convert
     var items: [WheelItem] = []
-    var inputs: [URL] = []
+    var inputs: [URL] = [] {
+        didSet { icon = FileIcon.icon(for: inputs) }
+    }
+    /// The inputs' Finder icon, looked up once per set of files.
+    private(set) var icon = NSImage()
     var highlighted: Int?
     /// Opened from the keyboard (menu or hotkey) rather than mid-drag: arrows and clicks choose.
     var keyboard = false

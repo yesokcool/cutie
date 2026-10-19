@@ -3,17 +3,23 @@ import UniformTypeIdentifiers
 
 /// Finder's icon for a file, or the stacked icon for several.
 struct FileIcon: View {
-    let urls: [URL]
+    let image: NSImage
+
+    init(urls: [URL]) { image = Self.icon(for: urls) }
+
+    /// An icon looked up once (the wheel redraws at every pointer move mid-drag;
+    /// asking Finder for the icon each time made it lag).
+    init(image: NSImage) { self.image = image }
 
     var body: some View {
-        Image(nsImage: icon)
+        Image(nsImage: image)
             .resizable()
             .interpolation(.high)
             .aspectRatio(contentMode: .fit)
             .accessibilityHidden(true)
     }
 
-    private var icon: NSImage {
+    static func icon(for urls: [URL]) -> NSImage {
         switch urls.count {
         case 0: NSWorkspace.shared.icon(for: .data)
         case 1 where !FileManager.default.fileExists(atPath: urls[0].path):

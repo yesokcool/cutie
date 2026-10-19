@@ -88,7 +88,11 @@ final class WheelController {
         let hosting = NSHostingView(rootView: WheelView(model: model))
         hosting.sizingOptions = []
         let dropView = WheelDropView(content: hosting)
-        dropView.onHover = { [weak self] index in self?.model.highlighted = index }
+        // Called at every pointer move; Observation redraws on every set, so only set changes.
+        dropView.onHover = { [weak self] index in
+            guard let self, self.model.highlighted != index else { return }
+            self.model.highlighted = index
+        }
         dropView.onDrop = { [weak self] urls in
             guard let self, self.model.highlightedItem != nil else { return false }
             self.model.inputs = urls
