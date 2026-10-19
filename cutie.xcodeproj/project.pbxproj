@@ -318,7 +318,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/cutie.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "$(CUTIE_TEAM)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -330,7 +330,7 @@
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Cutie asks Finder which files you selected, and Pages, Keynote or Numbers to convert their documents.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CUTIE_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = cutie;
 				PRODUCT_NAME = Cutie;
@@ -351,7 +351,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/cutie.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "$(CUTIE_TEAM)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -363,7 +363,7 @@
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Cutie asks Finder which files you selected, and Pages, Keynote or Numbers to convert their documents.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CUTIE_BUNDLE_ID).dev";
 				PRODUCT_MODULE_NAME = cutie;
 				PRODUCT_NAME = Cutie;
@@ -384,7 +384,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/cutie.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "$(CUTIE_TEAM)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -396,7 +396,7 @@
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Cutie asks Finder which files you selected, and Pages, Keynote or Numbers to convert their documents.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CUTIE_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = cutie;
 				PRODUCT_NAME = Cutie;
