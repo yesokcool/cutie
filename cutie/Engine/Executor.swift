@@ -53,6 +53,12 @@ nonisolated enum Executor {
             switch format {
             case .jpg, .png: target = try PDFConverter.images(input, as: format, in: work, context: context)
             case .pptx: try await PowerPoint.write(from: input, to: target, scratch: scratch, context: context)
+            case .docx: try await PDFToWord.write(from: input, to: target, context: context, scratch: scratch)
+            case .xlsx: try await PDFToWord.writeTables(from: input, to: target, context: context, scratch: scratch)
+            case .pages:
+                let docx = scratch.file(UUID().uuidString + ".docx")
+                try await PDFToWord.write(from: input, to: docx, context: context, scratch: scratch)
+                try await IWork.export(docx, with: .pages, to: .pages, at: target, toolbox: context.toolbox)
             default: try await writeDocument(from: input, as: format, to: target, context: context, scratch: scratch)
             }
         case .document, .ebook:

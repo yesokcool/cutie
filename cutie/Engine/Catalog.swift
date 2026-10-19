@@ -49,7 +49,7 @@ nonisolated enum Catalog {
                 return []
             }
         case .pdf:
-            formats = [.docx, .txt, .md, .jpg, .png, .epub, .rtf, .html, .pptx]
+            formats = [.docx, .txt, .md, .jpg, .png, .epub, .rtf, .html, .pptx, .xlsx]
             if toolbox.pages != nil { formats.insert(.pages, at: 1) }
         case .document:
             let native = extensions.allSatisfy(nativeDocuments.contains)
