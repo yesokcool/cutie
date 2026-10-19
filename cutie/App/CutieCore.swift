@@ -12,7 +12,7 @@ final class CutieCore {
         didSet {
             UserDefaults.standard.set(paused, forKey: Preferences.Key.paused)
             monitor.isEnabled = !paused
-            if paused { wheel.close() }
+            if paused { wheel.close(because: "Cutie was paused") }
         }
     }
     var finderShortcut = UserDefaults.standard.object(forKey: Preferences.Key.finderShortcut) as? Bool ?? true {
@@ -51,7 +51,9 @@ final class CutieCore {
         monitor.onDragEnded = { [unowned self] in
             // A drop on the wheel closes it itself; a drop anywhere else leaves it open.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                if self.wheel.isOpen && !self.wheel.model.keyboard { self.wheel.close() }
+                // Still held (a new drag, or a device that let go for a moment): leave it open.
+                guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+                if self.wheel.isOpen && !self.wheel.model.keyboard { self.wheel.close(because: "the drag ended elsewhere") }
             }
         }
         monitor.start()

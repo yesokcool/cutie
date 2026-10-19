@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Notices when you're dragging files anywhere on the Mac and tap a wheel's key.
 ///
@@ -9,6 +10,10 @@ import AppKit
 /// Modifier keys are read from `NSEvent.modifierFlags` (also permission-free).
 /// Only a key pressed *after* the drag started counts, so a ⌘-drag in Finder
 /// doesn't pop a wheel.
+///
+/// Some pointing devices report the button as up for a moment in the middle of
+/// a drag (pen tablets lifting slightly, mice whose own software re-posts
+/// clicks), so a release only counts once it lasts.
 final class DragMonitor {
     var isEnabled = true
     /// A wheel's key went down mid-drag.
@@ -21,8 +26,13 @@ final class DragMonitor {
     private var changeCount = 0
     private var files: [URL]?
     private var flags: NSEvent.ModifierFlags = []
+    /// When the button was first seen up; nil while it's held.
+    private var releasedAt: Date?
 
     static let watchedFlags: NSEvent.ModifierFlags = [.shift, .command, .control, .option]
+    /// How long the button must stay up before a file drag counts as over.
+    static let releaseGrace: TimeInterval = 0.15
+    static let log = Logger(subsystem: AppIdentity.bundleID, category: "drag")
 
     func start() {
         if let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] _ in
@@ -49,6 +59,7 @@ final class DragMonitor {
         guard isEnabled else { return }
         changeCount = NSPasteboard(name: .drag).changeCount
         files = nil
+        releasedAt = nil
         flags = Self.currentFlags
         stopPolling()
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
@@ -59,11 +70,23 @@ final class DragMonitor {
     }
 
     private func poll() {
-        guard NSEvent.pressedMouseButtons & 1 != 0 else {
+        if NSEvent.pressedMouseButtons & 1 == 0 {
+            let now = Date()
+            let since = releasedAt ?? now
+            releasedAt = since
+            // A plain click ends at once; a file drag only once the release lasts.
+            if files != nil, now.timeIntervalSince(since) < Self.releaseGrace { return }
             stopPolling()
-            if files != nil { onDragEnded() }
+            if files != nil {
+                Self.log.notice("Drag ended")
+                onDragEnded()
+            }
             files = nil
             return
+        }
+        if let since = releasedAt {
+            Self.log.notice("Button up for \(Date().timeIntervalSince(since), format: .fixed(precision: 3)) s mid-drag, ignored")
+            releasedAt = nil
         }
         let pasteboard = NSPasteboard(name: .drag)
         if files == nil, pasteboard.changeCount != changeCount {
@@ -72,6 +95,7 @@ final class DragMonitor {
             if !urls.isEmpty {
                 files = urls
                 flags = Self.currentFlags
+                Self.log.notice("Drag of \(urls.count) file(s) started")
             }
         }
         guard let files else { return }
@@ -79,6 +103,7 @@ final class DragMonitor {
         let pressed = now.subtracting(flags)
         flags = now
         if !pressed.isEmpty, let wheel = Preferences.wheel(forPressed: pressed) {
+            Self.log.notice("Key for \(String(describing: wheel)) pressed (flags \(now.rawValue))")
             onPress(wheel, files)
         }
     }

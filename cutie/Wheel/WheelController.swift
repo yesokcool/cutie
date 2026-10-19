@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 
 /// Opens, switches and closes the wheel, and hands the chosen slice on.
@@ -15,6 +16,10 @@ final class WheelController {
     /// In keyboard mode Cutie takes focus; this app gets it back when the wheel closes.
     private var previousApp: NSRunningApplication?
     private var resignObserver: NSObjectProtocol?
+    /// When the current wheel appeared: a repeat of its key right after (a
+    /// keyboard or driver bounce) mustn't close it straight away.
+    private var shownAt = Date.distantPast
+    static let log = Logger(subsystem: AppIdentity.bundleID, category: "wheel")
 
     var isOpen: Bool { panel?.isVisible == true }
 
@@ -40,11 +45,17 @@ final class WheelController {
 
     /// Another wheel's key: switch. The open wheel's own key again: close (a way to cancel mid-drag).
     func pressed(_ wheel: Wheel) {
-        if wheel == model.wheel { close() } else { show(wheel) }
+        guard wheel == model.wheel else { return show(wheel) }
+        guard Date().timeIntervalSince(shownAt) > 0.35 else {
+            Self.log.notice("Repeat of the open wheel's key ignored")
+            return
+        }
+        close(because: "its key was tapped again")
     }
 
-    func close() {
+    func close(because reason: StaticString = "closed") {
         guard let panel, panel.isVisible else { return }
+        Self.log.notice("Wheel closed: \(reason)")
         model.highlighted = nil
         model.appeared = false
         panel.orderOut(nil)
@@ -55,6 +66,8 @@ final class WheelController {
     }
 
     private func show(_ wheel: Wheel) {
+        shownAt = Date()
+        Self.log.notice("Wheel shown: \(String(describing: wheel))")
         model.wheel = wheel
         model.items = Catalog.items(for: model.inputs, wheel: wheel, toolbox: toolbox())
         model.highlighted = model.keyboard && !model.items.isEmpty ? 0 : nil
@@ -64,7 +77,7 @@ final class WheelController {
     private func choose() {
         guard let item = model.highlightedItem else { return }
         let inputs = model.inputs
-        close()
+        close(because: "a slice was chosen")
         onChoose(item, inputs, anchor)
     }
 
@@ -83,7 +96,7 @@ final class WheelController {
             return true
         }
         dropView.onChoose = { [weak self] in self?.choose() }
-        dropView.onCancel = { [weak self] in self?.close() }
+        dropView.onCancel = { [weak self] in self?.close(because: "cancelled") }
         dropView.onStep = { [weak self] step in
             guard let self, !self.model.items.isEmpty else { return }
             let count = self.model.items.count
@@ -98,7 +111,7 @@ final class WheelController {
         resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.model.keyboard else { return }
-                self.close()
+                self.close(because: "another window took focus")
             }
         }
         self.panel = panel
