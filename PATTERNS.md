@@ -72,6 +72,11 @@ out a quarter of the icon. Wrap the path in a 1024×1024 SVG with
   in, then the written orientation tag is reset to 1.
 - **`PDFPage.draw(with:to:)` applies the page's rotation** (tested), so a
   rotated page renders landscape without extra transforms.
+- **Inside a `GlassEffectContainer`, put text *in* the glass, not beside it.**
+  A slice built as `ZStack { Color.clear.glassEffect(…); label }` showed its
+  label for a moment, then the container's merged glass faded in over it and
+  the names vanished (2026-10-19, seen live; snapshots use a flat stand-in, so
+  tests can't catch it). Apply the glass to the view that holds the label.
 - **Live Text's first run takes ~20 s** while the model loads (tests included).
 - **ImageIO says a truncated JPEG is complete.** `CGImageSourceGetStatusAtIndex`
   returns `.statusComplete` for a half file and decoding fills the rest with
