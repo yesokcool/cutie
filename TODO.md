@@ -19,6 +19,60 @@
 - [ ] Trim a video and a song; AirDrop; Move; Terminal.
 - [ ] Glass look in light and dark (snapshots only show a flat stand-in).
 
+## Pro-grade pass
+> **In plain words:** a fidelity audit (2026-10-19) ran the real engine on
+> fixtures built to stress each case. Image conversion and native MOV↔MP4 are
+> close to pro tools; documents, spreadsheets, PDF→office and the ffmpeg path
+> are not, and some paths lose data without saying so. The goal is output a
+> professional would trust. In order of impact:
+
+- [ ] **Never report a broken result as done.** Check
+      `CGImageSourceGetStatusAtIndex` (a truncated JPEG still makes a PNG,
+      `ImageConverter.swift:17-36`); fail when ffmpeg's output is much shorter
+      than the input (`FFmpeg.swift:36-49`); show the useful stderr line, not
+      the last (`Shell.swift:13`); drop the 5000-page cap
+      (`PDFRenderer.swift:21`); render off the main thread.
+- [ ] **Text encodings:** Windows-1252/1250/MacRoman CSV, SRT and TXT fail
+      today (`DocumentReader.swift:62-66`). Detect with
+      `NSString.stringEncoding(for:…)`.
+- [ ] **Spreadsheets:** apply `styles.xml` number formats when reading XLSX
+      (dates come out as serials, 8.25% as 0.0825; `XLSX.swift:62-72`); print
+      numbers to 15 significant digits instead of turning them into text
+      (`XMLText.swift:22-28`); detect the CSV delimiter (`Spreadsheet.swift:9`);
+      stream sheets with `XMLParser` (a 14 MB XLSX peaked at 3.9 GB).
+- [ ] **ffmpeg rewrite:** probe first and remux with `-c copy` when streams fit;
+      keep every stream (`-map 0:v:0 -map 0:a? -map 0:s?`, `mov_text`),
+      `-map_metadata 0 -map_chapters 0`; HDR to 10-bit HEVC (`hvc1`), never
+      10-bit H.264 or 8-bit with PQ tags (`FFmpeg.swift:10-13`,
+      `MediaTools.swift:25`); `aac_at`, bitrate per channel, 24-bit PCM when
+      the source is, cover art kept; two-pass loudnorm with `-ar`
+      (`MediaTools.swift:117-122`).
+- [ ] **Keep video metadata** (capture date, GPS) on Compress/Mute/Rotate:
+      copy `asset.metadata` (`MediaTools.swift:37-46,62-77`).
+- [ ] **Images:** lossless rotate/flip/strip via
+      `CGImageDestinationCopyImageSource`; tools keep the source colour space
+      and bit depth (`ImageConverter.swift:131-137`); HDR gain maps kept, PQ
+      tone-mapped for SDR targets; every frame of an animation (`:31`).
+- [ ] **PDF:** render the CropBox, not the MediaBox (`PDFConverter.swift:15,26`);
+      JPEGs go into PDFs as JPEG (Combine made 176 KB into 1.16 MB); keep
+      title/author and bookmarks on merge/split; OCR per page; Vision
+      `RecognizeDocumentsRequest` for reading order and tables (OCR sorts by Y
+      only, so columns interleave, `ImageTools.swift:79`). Compress saves 0%
+      today (`PDFConverter.swift:70-74`).
+- [ ] **Office documents:** route DOCX→PDF through Pages and XLSX→PDF through
+      Numbers when installed (`Executor.swift:53,64`); LibreOffice
+      (`soffice --headless`) and pandoc as detected helpers for real layout,
+      formulas, PPTX without Keynote, and structured MD/DOCX/EPUB. In-house now:
+      Markdown body at 16 pt (`HTML.swift:34`), absolute `file://` image paths
+      in HTML (`Markdown.swift:48-49`), page size from the locale.
+- [ ] **PDF → Word:** text only today. Build it from Vision document structure
+      plus extracted images, or call it "PDF → Text".
+- [ ] **Smaller:** scratch on the output's volume
+      (`.itemReplacementDirectory`, `Scratch.swift:8`); 7z for passwords and
+      multi-volume archives; translate subtitle tags, ASS, subtitles out of
+      video.
+- [ ] **Fidelity tests** from the audit's fixtures, so these stay fixed.
+
 ## Buildable now
 - [ ] *Drags from apps that don't hand over a file path* (Photos, Mail
       attachments, images from Safari) use "file promises"; Cutie ignores them
