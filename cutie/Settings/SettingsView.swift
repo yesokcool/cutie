@@ -52,6 +52,23 @@ struct SettingsView: View {
                 Toggle("Pause Cutie", isOn: $core.paused)
             }
 
+            if core.updater.isAvailable {
+                Section {
+                    Toggle("Check for updates automatically", isOn: Binding(
+                        get: { core.updater.automaticChecks },
+                        set: { core.updater.automaticChecks = $0 }
+                    ))
+                    LabeledContent("Version \(Self.version)") {
+                        Button("Check Now") { core.updater.checkForUpdates() }
+                    }
+                } header: {
+                    Text("Updates")
+                } footer: {
+                    Text("Off unless you turn it on. When on, Cutie asks GitHub once a day whether there's a newer version; nothing else leaves this Mac.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section {
                 HelperRow(name: "ffmpeg", unlocks: "MP3, OGG, Opus, WMA, MKV, WebM, AVI and WMV",
                           found: core.toolbox.ffmpeg != nil, install: "brew install ffmpeg")
@@ -79,6 +96,10 @@ struct SettingsView: View {
         .frame(width: 540)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { core.refreshToolbox() }
+    }
+
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
     }
 
     private func keyPicker(_ title: String, for wheel: Wheel) -> some View {

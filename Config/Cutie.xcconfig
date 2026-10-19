@@ -11,4 +11,10 @@ CUTIE_TEAM =
 // The bundle id. Cutie DEV adds ".dev"; the tests add ".tests".
 CUTIE_BUNDLE_ID = com.example.cutie
 
+// Updates (Sparkle): the appcast's address and the EdDSA public key that signs
+// releases (Tools/release-mac.sh). Empty means this build offers no updates.
+// In an xcconfig, write "https:/$()/…" (a bare "//" starts a comment).
+CUTIE_FEED_URL =
+CUTIE_UPDATE_KEY =
+
 #include? "Local.xcconfig"

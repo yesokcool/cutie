@@ -14,6 +14,11 @@ struct MenuBarMenu: View {
         Divider()
         Toggle("Pause Cutie", isOn: $core.paused)
         Divider()
+        if core.updater.isAvailable {
+            Button(core.updater.waitingVersion.map { "Update to \($0)…" } ?? "Check for Updates…") {
+                core.updater.checkForUpdates()
+            }
+        }
         Button("How Cutie Works") {
             NSApp.activate()
             openWindow(id: WelcomeView.windowID)

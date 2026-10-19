@@ -5,7 +5,8 @@
 A file converter for the Mac that lives in the menu bar. Drag a file, tap a
 key while you're still holding it, and drop it on a wheel of choices. The
 result appears where you dropped it, saved next to the original. Everything
-runs on your Mac: Cutie has no network code at all.
+runs on your Mac. The only time Cutie goes online is the optional update
+check, and that's off unless you turn it on.
 
 ## Download
 
@@ -13,6 +14,12 @@ runs on your Mac: Cutie has no network code at all.
 (the newest version, from [Releases](https://github.com/yesokcool/cutie/releases)),
 open the zip and drag Cutie to Applications. It's signed and notarized by Apple, so
 it opens like any other app. Needs macOS 26 or later.
+
+**Updates:** turn on "Check for updates automatically" (in the welcome window
+or Settings) and Cutie checks GitHub once a day; a new version shows up as
+"Update to …" in its menu, never as a pop-up. Or use Check for Updates… in the
+menu whenever you like. Without either, the download link above always has the
+newest version.
 
 ## How it works
 
@@ -165,6 +172,8 @@ unit-tested; `TODO.md` has the checklist to try by hand.
 
 ## Credits
 
+- Updates use [Sparkle](https://sparkle-project.org), under the MIT License
+  ([full text](docs/sparkle-LICENSE.txt)).
 - The orange in the icon is from [Phosphor Icons](https://phosphoricons.com),
   Copyright (c) 2023 Phosphor Icons, under the MIT License
   ([full text](docs/phosphor-icons-LICENSE.txt)).

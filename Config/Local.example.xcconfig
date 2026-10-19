@@ -3,3 +3,7 @@
 
 CUTIE_TEAM = ABCDE12345
 CUTIE_BUNDLE_ID = com.yourname.cutie
+
+// Only to publish updates of your own build (see Tools/release-mac.sh):
+// CUTIE_FEED_URL = https:/$()/github.com/you/cutie/releases/latest/download/appcast.xml
+// CUTIE_UPDATE_KEY = (the public key from Sparkle's generate_keys)

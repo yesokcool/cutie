@@ -28,6 +28,7 @@ final class CutieCore {
     @ObservationIgnored let floats = FloatController()
     @ObservationIgnored let trimmer = TrimController()
     @ObservationIgnored let hotKey = FinderHotKey()
+    let updater = Updater()
     @ObservationIgnored private lazy var actions = ActionRunner(jobs: jobs, floats: floats)
     @ObservationIgnored private var started = false
 

@@ -11,7 +11,7 @@ user-facing overview.
 (their install, to-dos, history). `private/` is gitignored and never published.
 
 macOS 26.0+, Swift 6, default-MainActor isolation, file-system-synchronized
-groups, no packages. An agent app (`LSUIElement`: menu bar icon, no Dock icon).
+groups, one package: Sparkle (optional updates, `App/Updater`). An agent app (`LSUIElement`: menu bar icon, no Dock icon).
 The team and bundle id come from `Config/Cutie.xcconfig` (neutral defaults,
 `com.example.cutie`) plus the gitignored `Config/Local.xcconfig`; the Dev
 configuration adds `.dev` ("Cutie Dev", grey-orange icon).
@@ -115,6 +115,15 @@ keys with `@AppStorage`. Never rename a key (it silently resets the setting).
 - Open at login (SMAppService) and the glass look in light and dark.
 
 ## Decision log
+- **2026-10-19** Updates through Sparkle, **off until turned on** (the
+  maintainer: "make it optional to turn on"): no first-run prompt
+  (`SUEnableAutomaticChecks` false), a checkbox in the welcome window and
+  Settings, "Check for Updates…" in the menu, and gentle reminders (a waiting
+  version shows as "Update to …" in the menu, never a pop-up). Feed and public
+  key come from `Local.xcconfig` (`CUTIE_FEED_URL`, `CUTIE_UPDATE_KEY`), so a
+  fresh clone or the Dev build offers no updates. The private key lives outside
+  the repo and Dropbox; `Tools/release-mac.sh` signs the zip and writes
+  `appcast.xml` for the GitHub release.
 - **2026-10-19** Pro-grade pass (TODO.md), the maintainer: "it needs to be THAT good
   and THAT solid". Nothing about a file changes unless the tool is about that
   thing, and a damaged input is refused, never "converted". Fidelity suites

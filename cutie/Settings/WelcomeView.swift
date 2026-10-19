@@ -5,6 +5,7 @@ struct WelcomeView: View {
     static let windowID = "welcome"
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var sample = WheelModel.sample
+    @Bindable private var updater = CutieCore.shared.updater
 
     var body: some View {
         let convert = Preferences.key(for: .convert)
@@ -28,6 +29,11 @@ struct WelcomeView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+
+            if updater.isAvailable {
+                Toggle("Check for updates automatically", isOn: $updater.automaticChecks)
+                    .toggleStyle(.checkbox)
+            }
 
             Button {
                 UserDefaults.standard.set(true, forKey: Preferences.Key.hasSeenWelcome)

@@ -7,7 +7,9 @@ That's the whole point, so it settles most design calls: if a feature needs
 a window, it had better be rare (Trim) or optional (Settings).
 
 ## What it holds to
-- **Files stay on this Mac.** No network code at all. Helpers (ffmpeg, cwebp,
+- **Files stay on this Mac.** The only network request is the optional
+  update check (off until the person turns it on), and it sends nothing about
+  their files. Helpers (ffmpeg, cwebp,
   Pages/Keynote/Numbers) are local programs.
 - **Originals are sacred.** Cutie only ever adds files next to them, under a
   fresh name. A half-finished job leaves nothing behind.
