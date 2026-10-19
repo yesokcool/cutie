@@ -64,6 +64,10 @@ struct SettingsView: View {
                 HelperRow(name: "Pages", unlocks: "Pages documents", found: core.toolbox.pages != nil)
                 HelperRow(name: "Keynote", unlocks: "Keynote and PowerPoint slides", found: core.toolbox.keynote != nil)
                 HelperRow(name: "Numbers", unlocks: "Numbers and XLS spreadsheets", found: core.toolbox.numbers != nil)
+                HelperRow(name: "LibreOffice", unlocks: "Word, Excel and PowerPoint with real layout and formulas",
+                          found: core.toolbox.soffice != nil, install: "brew install --cask libreoffice")
+                HelperRow(name: "pandoc", unlocks: "Headings, tables and footnotes in Word, Markdown and EPUB",
+                          found: core.toolbox.pandoc != nil, install: "brew install pandoc")
             } header: {
                 Text("Helpers")
             } footer: {

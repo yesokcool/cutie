@@ -3,7 +3,8 @@ import Foundation
 /// EPUB 3 in and out. Writing makes one chapter from an XHTML page (local
 /// images are copied in); reading joins the spine's chapters into one page.
 nonisolated enum EPUB {
-    static func write(title: String, xhtml: String, to output: URL, scratch: Scratch) async throws {
+    /// `baseURL` resolves pictures given by relative path (a Markdown file's "photos/a.png").
+    static func write(title: String, xhtml: String, to output: URL, baseURL: URL? = nil, scratch: Scratch) async throws {
         let root = try scratch.folder("epub-" + UUID().uuidString)
         let oebps = root.appending(path: "OEBPS", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: oebps.appending(path: "images"), withIntermediateDirectories: true)
@@ -12,12 +13,13 @@ nonisolated enum EPUB {
         // Copy local images in and point the chapter at the copies.
         var chapter = xhtml
         var images: [(href: String, type: String)] = []
-        let pattern = try NSRegularExpression(pattern: #"src="(file://[^"]+)""#)
+        let pattern = try NSRegularExpression(pattern: #"src="([^"]+)""#)
         let matches = pattern.matches(in: xhtml, range: NSRange(xhtml.startIndex..., in: xhtml))
         for match in matches.reversed() {
-            guard let range = Range(match.range(at: 1), in: xhtml),
-                  let url = URL(string: String(xhtml[range])),
-                  FileManager.default.fileExists(atPath: url.path) else { continue }
+            guard let range = Range(match.range(at: 1), in: xhtml) else { continue }
+            let source = String(xhtml[range]).replacingOccurrences(of: "&amp;", with: "&")
+            guard let url = source.hasPrefix("file://") ? URL(string: source) : baseURL.flatMap({ URL(string: source, relativeTo: $0) }),
+                  url.isFileURL, FileManager.default.fileExists(atPath: url.path) else { continue }
             let ext = url.pathExtension.lowercased()
             let href = "images/\(images.count + 1).\(ext)"
             try FileManager.default.copyItem(at: url, to: oebps.appending(path: href))

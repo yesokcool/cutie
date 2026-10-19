@@ -16,6 +16,10 @@ nonisolated struct Toolbox: Sendable, Equatable {
     var pages: URL?
     var keynote: URL?
     var numbers: URL?
+    /// LibreOffice's command line (inside LibreOffice.app): office files with real layout.
+    var soffice: URL?
+    /// pandoc: document structure between Word, ODT, Markdown, HTML and EPUB.
+    var pandoc: URL?
 
     static let none = Toolbox()
 
@@ -41,7 +45,10 @@ nonisolated struct Toolbox: Sendable, Equatable {
             ghostscript: tool("gs"),
             pages: app("com.apple.iWork.Pages"),
             keynote: app("com.apple.iWork.Keynote"),
-            numbers: app("com.apple.iWork.Numbers")
+            numbers: app("com.apple.iWork.Numbers"),
+            soffice: app("org.libreoffice.script").map { $0.appending(path: "Contents/MacOS/soffice") }
+                .flatMap { FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil } ?? tool("soffice"),
+            pandoc: tool("pandoc")
         )
     }
 }

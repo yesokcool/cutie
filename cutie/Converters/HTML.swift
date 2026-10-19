@@ -9,6 +9,33 @@ nonisolated enum HTML {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
+    /// Rewrites every pt/px length inside `<style>` blocks and `style` attributes
+    /// (never the text itself) with `rewrite(value, unit)`.
+    static func rewritingCSSLengths(in html: String, _ rewrite: (Double, String) -> String) -> String {
+        let regions = /(?is)(<style[^>]*>)(.*?)(<\/style>)|(\bstyle\s*=\s*")([^"]*)(")|(\bstyle\s*=\s*')([^']*)(')/
+        var result = ""
+        var rest = html[...]
+        while let match = rest.firstMatch(of: regions) {
+            result += rest[..<match.range.lowerBound]
+            let output = match.output
+            let parts = [(output.1, output.2, output.3), (output.4, output.5, output.6), (output.7, output.8, output.9)]
+            if let (open, css, close) = parts.first(where: { $0.0 != nil }).map({ ($0.0!, $0.1!, $0.2!) }) {
+                let lengths = css.replacing(/(-?\d*\.?\d+)(pt|px)\b/) { length in
+                    rewrite(Double(length.output.1) ?? 0, String(length.output.2))
+                }
+                result += open + lengths + close
+            }
+            rest = rest[match.range.upperBound...]
+        }
+        return result + rest
+    }
+
+    /// A CSS number without needless decimals ("12", "10.5").
+    static func cssNumber(_ value: Double) -> String {
+        let rounded = (value * 100).rounded() / 100
+        return rounded == rounded.rounded() ? String(Int(rounded)) : String(rounded)
+    }
+
     /// Any HTML, tidied into well-formed XHTML: the `<body>` contents and the page's `<style>` text.
     static func xhtmlBody(fromHTML html: String) -> (body: String, style: String) {
         guard let document = try? XMLDocument(xmlString: html, options: [.documentTidyHTML]) else {

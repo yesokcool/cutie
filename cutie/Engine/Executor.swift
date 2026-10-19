@@ -39,6 +39,11 @@ nonisolated enum Executor {
         let work = try scratch.folder(UUID().uuidString)
         var target = work.appending(path: "\(base).\(format.fileExtension)")
 
+        // LibreOffice, pandoc, Pages or Numbers when one does this conversion better.
+        if let done = try await Office.convert(input, to: format, in: work, context: context, scratch: scratch) {
+            return try context.output.place(done, named: done.lastPathComponent, beside: input)
+        }
+
         switch FileKind.of(input) {
         case .image:
             try await ImageConverter.convert(input, to: format, at: target, context: context, scratch: scratch)
@@ -92,7 +97,8 @@ nonisolated enum Executor {
             html = Markdown.htmlPage(from: try DocumentReader.readText(input), title: base, baseURL: input.deletingLastPathComponent())
         }
         let text = try await DocumentReader.read(input, context: context, scratch: scratch)
-        try await DocumentWriter.write(text, html: html, as: format, to: target, title: base, context: context, scratch: scratch)
+        try await DocumentWriter.write(text, html: html, baseURL: input.deletingLastPathComponent(), as: format, to: target,
+                                       title: base, context: context, scratch: scratch)
     }
 
     /// One archive of everything dropped: "Folder.zip" for one item, "Archive.zip" for several.

@@ -262,7 +262,8 @@ struct ConversionTests {
         let images = try await convert(input, to: .png, fixtures.context)
         #expect(images.lastPathComponent == "report (PNG)")
         let first = try #require(try FileManager.default.contentsOfDirectory(at: images, includingPropertiesForKeys: nil).sorted { $0.path < $1.path }.first)
-        #expect(pixelSize(first) == CGSize(width: 2550, height: 3300)) // Letter at 300 DPI
+        let paper = PDFRenderer.paperSize // the region's A4 or Letter, at 300 DPI
+        #expect(pixelSize(first) == CGSize(width: Int(paper.width * 300 / 72), height: Int(paper.height * 300 / 72)))
         #expect(try FileManager.default.contentsOfDirectory(atPath: images.path).count == pages)
 
         let text = try String(contentsOf: try await convert(input, to: .txt, fixtures.context), encoding: .utf8)

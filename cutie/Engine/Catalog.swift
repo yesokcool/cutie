@@ -57,11 +57,15 @@ nonisolated enum Catalog {
         case .ebook:
             formats = [.pdf, .docx, .md, .txt, .html, .rtf]
         case .slides:
-            guard toolbox.keynote != nil else { return [] }
+            // Keynote opens everything; LibreOffice everything but Keynote's own files.
+            let libreOffice = toolbox.soffice != nil && !extensions.contains("key")
+            guard toolbox.keynote != nil || libreOffice else { return [] }
             formats = [.pdf, .pptx, .key, .jpg, .png]
+            if toolbox.keynote == nil { formats.removeAll { $0 == .key } }
         case .spreadsheet:
             let native = extensions.allSatisfy(nativeSpreadsheets.contains)
-            guard native || toolbox.numbers != nil else { return [] }
+            let libreOffice = toolbox.soffice != nil && !extensions.contains("numbers")
+            guard native || toolbox.numbers != nil || libreOffice else { return [] }
             formats = [.xlsx, .csv, .pdf, .tsv, .ods]
             if toolbox.numbers != nil { formats.append(.numbers) }
         case .subtitle:

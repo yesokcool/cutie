@@ -20,8 +20,12 @@ nonisolated enum Markdown {
             let path = Array((run.presentationIntent?.components ?? []).reversed())
             var shared = 0
             while shared < min(open.count, path.count), open[shared].identity == path[shared].identity { shared += 1 }
-            for block in open[shared...].reversed() { html += closingTag(block.kind) }
-            for block in path[shared...] { html += openingTag(block.kind) }
+            for (index, block) in open.enumerated().dropFirst(shared).reversed() {
+                html += closingTag(block.kind, in: open[..<index])
+            }
+            for (index, block) in path.enumerated().dropFirst(shared) {
+                html += openingTag(block.kind, in: path[..<index])
+            }
             open = path
 
             let text = String(document[run.range].characters)
@@ -32,7 +36,7 @@ nonisolated enum Markdown {
             }
             html += inline(text, run: run)
         }
-        for block in open.reversed() { html += closingTag(block.kind) }
+        for (index, block) in open.enumerated().reversed() { html += closingTag(block.kind, in: open[..<index]) }
         return html
     }
 
@@ -46,7 +50,9 @@ nonisolated enum Markdown {
         if intent.contains(.lineBreak) { return "<br/>" }
         if intent.contains(.softBreak) { return "\n" }
         if let image = run.imageURL {
-            return "<img src=\"\(HTML.escape(image.absoluteString))\" alt=\"\(HTML.escape(text))\"/>"
+            // As written ("photos/a.png"), so the page works wherever it's moved with its pictures.
+            let source = image.baseURL == nil ? image.absoluteString : image.relativeString
+            return "<img src=\"\(HTML.escape(source))\" alt=\"\(HTML.escape(text))\"/>"
         }
         var html = HTML.escape(text)
         if intent.contains(.code) { html = "<code>\(html)</code>" }
@@ -57,7 +63,9 @@ nonisolated enum Markdown {
         return html
     }
 
-    private static func openingTag(_ kind: PresentationIntent.Kind) -> String {
+    /// `outer` is the blocks this one sits in (outermost first), which decides
+    /// whether a table cell is a header and how its column is aligned.
+    private static func openingTag(_ kind: PresentationIntent.Kind, in outer: ArraySlice<PresentationIntent.IntentType>) -> String {
         switch kind {
         case .paragraph: "<p>"
         case .header(let level): "<h\(min(max(level, 1), 6))>"
@@ -69,12 +77,28 @@ nonisolated enum Markdown {
         case .thematicBreak: "<hr/>"
         case .table: "<table>"
         case .tableHeaderRow, .tableRow: "<tr>"
-        case .tableCell: "<td>"
+        case .tableCell(let column): "<\(cellTag(in: outer))\(alignment(of: column, in: outer))>"
         @unknown default: ""
         }
     }
 
-    private static func closingTag(_ kind: PresentationIntent.Kind) -> String {
+    private static func cellTag(in outer: ArraySlice<PresentationIntent.IntentType>) -> String {
+        outer.contains { $0.kind == .tableHeaderRow } ? "th" : "td"
+    }
+
+    private static func alignment(of column: Int, in outer: ArraySlice<PresentationIntent.IntentType>) -> String {
+        for block in outer.reversed() {
+            guard case .table(let columns) = block.kind, columns.indices.contains(column) else { continue }
+            switch columns[column].alignment {
+            case .center: return " style=\"text-align: center\""
+            case .right: return " style=\"text-align: right\""
+            default: return ""
+            }
+        }
+        return ""
+    }
+
+    private static func closingTag(_ kind: PresentationIntent.Kind, in outer: ArraySlice<PresentationIntent.IntentType>) -> String {
         switch kind {
         case .paragraph: "</p>\n"
         case .header(let level): "</h\(min(max(level, 1), 6))>\n"
@@ -86,7 +110,7 @@ nonisolated enum Markdown {
         case .thematicBreak: "\n"
         case .table: "</table>\n"
         case .tableHeaderRow, .tableRow: "</tr>\n"
-        case .tableCell: "</td>"
+        case .tableCell: "</\(cellTag(in: outer))>"
         @unknown default: ""
         }
     }

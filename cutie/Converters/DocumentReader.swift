@@ -14,7 +14,9 @@ enum DocumentReader {
             return try fromHTML(Markdown.htmlPage(from: text, title: Output.baseName(of: url), baseURL: folder), baseURL: folder)
         case "txt", "text":
             return plain(try readText(url))
-        case "html", "htm", "docx", "doc", "rtf", "rtfd", "odt", "webarchive":
+        case "html", "htm":
+            return try fromHTML(try readText(url), baseURL: url.deletingLastPathComponent())
+        case "docx", "doc", "rtf", "rtfd", "odt", "webarchive":
             return try NSAttributedString(url: url, options: [.documentType: documentType(for: ext)], documentAttributes: nil)
         case "textclipping":
             return try textClipping(url)
@@ -45,7 +47,13 @@ enum DocumentReader {
         }
     }
 
+    /// Cocoa's HTML import takes a CSS pixel for a point (and its default text
+    /// is 12): a page's `font-size: 12pt` (16 px) came out as 16 pt. CSS lengths
+    /// are rewritten first so print sizes survive: pt stay pt, px become ¾ pt.
     static func fromHTML(_ html: String, baseURL: URL?) throws -> NSAttributedString {
+        let html = HTML.rewritingCSSLengths(in: html) { value, unit in
+            HTML.cssNumber(unit == "pt" ? value : value * 0.75) + "px"
+        }
         var options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
             .documentType: NSAttributedString.DocumentType.html,
             .characterEncoding: String.Encoding.utf8.rawValue,

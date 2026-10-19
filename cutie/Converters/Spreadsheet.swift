@@ -15,7 +15,11 @@ nonisolated enum Spreadsheet {
             return try await ODS.read(url, scratch: scratch)
         case "xls", "numbers":
             let xlsx = scratch.file(UUID().uuidString + ".xlsx")
-            try await IWork.export(url, with: .numbers, to: .xlsx, at: xlsx, toolbox: toolbox)
+            if let soffice = toolbox.soffice, url.pathExtension.lowercased() == "xls" {
+                try await LibreOffice.convert(url, to: .xlsx, at: xlsx, soffice: soffice, scratch: scratch)
+            } else {
+                try await IWork.export(url, with: .numbers, to: .xlsx, at: xlsx, toolbox: toolbox)
+            }
             return try await XLSX.read(xlsx, scratch: scratch)
         case let ext:
             throw CutieError("Can't open .\(ext) spreadsheets.")
@@ -46,10 +50,7 @@ nonisolated enum Spreadsheet {
         case .pdf:
             let html = HTML.page(title: title, body: book.sheets.map(tableHTML).joined(separator: "\n"))
             let columns = book.sheets.map { $0.rows.map(\.count).max() ?? 0 }.max() ?? 0
-            try await MainActor.run {
-                let text = try DocumentReader.fromHTML(html, baseURL: nil)
-                try PDFRenderer.render(text, to: output, title: title, landscape: columns > 6)
-            }
+            try await renderPDF(html, to: output, title: title, landscape: columns > 6)
         case .numbers:
             let xlsx = scratch.file(UUID().uuidString + ".xlsx")
             try await XLSX.write(book, to: xlsx, scratch: scratch)
@@ -58,6 +59,12 @@ nonisolated enum Spreadsheet {
             throw CutieError("Can't write \(format.title) spreadsheets.")
         }
         return false
+    }
+
+    @MainActor
+    private static func renderPDF(_ html: String, to output: URL, title: String, landscape: Bool) async throws {
+        let text = try DocumentReader.fromHTML(html, baseURL: nil)
+        try await PDFRenderer.renderInBackground(text, to: output, title: title, landscape: landscape)
     }
 
     static func tableHTML(_ sheet: Workbook.Sheet) -> String {
