@@ -159,7 +159,7 @@ Tools/install-mac.sh
 # a downloadable release: archive, Developer ID, Apple notarization, zip (prints its path)
 Tools/release-mac.sh
 ```
-Smoke-launching without the welcome window: `open -g -n <Cutie.app> --args -hasSeenWelcome YES`.
+Don't launch the app to check it, not even with `open -g` (it still takes focus). `Tools/install-mac.sh` quits a running copy and leaves it closed; the maintainer reopens it. Wheel and drag behaviour can only be checked by hand; the drag/wheel log helps: `/usr/bin/log show --last 10m --predicate 'subsystem == "<bundle id>"'`.
 
 ## Docs map
 `README.md` · `PHILOSOPHY.md` · `TODO.md` (+ `DONE.md` once items ship) ·
