@@ -23,6 +23,18 @@ nonisolated enum MediaChecks {
         return duration.seconds
     }
 
+    /// Seconds of the longest track of `type`, from AVFoundation (nil when it can't open the file).
+    static func trackDuration(of url: URL, type: AVMediaType) async -> Double? {
+        guard let tracks = try? await AVURLAsset(url: url).loadTracks(withMediaType: type), !tracks.isEmpty else { return nil }
+        var longest: Double?
+        for track in tracks {
+            if let range = try? await track.load(.timeRange), range.duration.isNumeric {
+                longest = max(longest ?? 0, range.duration.seconds)
+            }
+        }
+        return longest
+    }
+
     /// Fails when the result is clearly shorter than the original.
     static func checkLength(of output: URL, against input: URL, expected: Double? = nil, context: JobContext) async throws {
         var expected = expected

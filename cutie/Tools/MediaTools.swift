@@ -38,11 +38,13 @@ nonisolated enum MediaTools {
     static func mute(_ input: URL, to output: URL, context: JobContext) async throws {
         try MediaChecks.checkComplete(input)
         guard isNative(input) else {
-            // Everything but the sound, copied as is.
+            // Everything but the sound, copied as is; as long as the picture, which the sound may outlast.
+            let probe = try await FFmpeg.probe(input, context: context)
             try await FFmpeg.run(input: input, output: output, arguments: [
                 "-map", "0", "-map", "-0:a", "-c", "copy", "-map_metadata", "0", "-map_chapters", "0",
             ], context: context)
-            return try await MediaChecks.checkLength(of: output, against: input, context: context)
+            let expected = probe.isKnown ? probe.expectedDuration(audioOnly: false, dropAudio: true) : nil
+            return try await MediaChecks.checkLength(of: output, against: input, expected: expected, context: context)
         }
         let asset = AVURLAsset(url: input)
         let composition = AVMutableComposition()
@@ -74,11 +76,12 @@ nonisolated enum MediaTools {
         try MediaChecks.checkComplete(input)
         if context.toolbox.ffmpeg != nil {
             let probe = try await FFmpeg.probe(input, context: context)
-            guard !probe.audio.isEmpty else { throw CutieError("This file has no sound.") }
+            guard !probe.isKnown || !probe.audio.isEmpty else { throw CutieError("This file has no sound.") }
             try await FFmpeg.convert(input, to: format, at: output, context: context, probe: probe)
         } else {
             try await MediaConverter.exportAudio(input, to: output, context: context)
-            try await MediaChecks.checkLength(of: output, against: input, context: context)
+            let expected = await MediaChecks.trackDuration(of: input, type: .audio)
+            try await MediaChecks.checkLength(of: output, against: input, expected: expected, context: context)
         }
     }
 
@@ -161,16 +164,18 @@ nonisolated enum MediaTools {
         }
     }
 
-    /// Loudness evened out to −16 LUFS (podcast level), same format, sample
-    /// rate and bit depth as the input. Two passes: the first measures, the
-    /// second applies one exact, constant gain (no pumping).
+    /// Loudness evened out to −16 LUFS (podcast level), same format, codec,
+    /// sample rate and bit depth as the input (Apple Lossless stays lossless).
+    /// Two passes: the first measures, the second applies one exact, constant
+    /// gain (no pumping).
     static func normalize(_ input: URL, to output: URL, context: JobContext) async throws {
         try MediaChecks.checkComplete(input)
         let probe = try await FFmpeg.probe(input, context: context)
-        guard let audio = probe.mainAudio else { throw CutieError("This file has no sound.") }
+        if probe.isKnown, probe.mainAudio == nil { throw CutieError("This file has no sound.") }
+        let track = probe.mainAudio.map { "0:\($0.index)" } ?? "0:a:0"
         let target = "I=-16:TP=-1.5:LRA=11"
         var filter = "loudnorm=\(target)"
-        let log = try await FFmpeg.runCapturingLog(["-hide_banner", "-nostdin", "-i", input.path, "-map", "0:\(audio.index)",
+        let log = try await FFmpeg.runCapturingLog(["-hide_banner", "-nostdin", "-i", input.path, "-map", track,
                                                     "-af", "loudnorm=\(target):print_format=json", "-f", "null", "-"], context: context)
         if let measured = loudnessMeasurements(in: log) {
             filter += ":measured_I=\(measured["input_i"]!):measured_TP=\(measured["input_tp"]!)"
@@ -179,10 +184,10 @@ nonisolated enum MediaTools {
         }
         let format = Format.matching(extension: FileKind.fileExtension(of: input)) ?? .m4a
         // loudnorm works at 192 kHz inside; the plan asks for the source's own rate back.
-        let arguments = FFmpeg.arguments(for: format, probe: probe, options: FFmpeg.Options(reencodeAudio: true, audioFilter: filter),
-                                         toolbox: context.toolbox)
+        let options = FFmpeg.Options(reencodeAudio: true, audioFilter: filter, keepCodec: true)
+        let arguments = FFmpeg.arguments(for: format, probe: probe, options: options, toolbox: context.toolbox)
         try await FFmpeg.run(input: input, output: output, arguments: arguments, context: context)
-        try await MediaChecks.checkLength(of: output, against: input, expected: probe.duration, context: context)
+        try await MediaChecks.checkLength(of: output, against: input, expected: probe.mainAudio?.duration ?? probe.duration, context: context)
     }
 
     /// The numbers loudnorm prints after its measuring pass.
@@ -225,6 +230,7 @@ nonisolated enum MediaTools {
     static func extractSubtitles(_ input: URL, in work: URL, context: JobContext) async throws -> URL {
         try MediaChecks.checkComplete(input)
         let probe = try await FFmpeg.probe(input, context: context)
+        guard probe.isKnown else { throw CutieError("Getting subtitles needs ffprobe, which comes with ffmpeg (brew install ffmpeg).") }
         let tracks = probe.subtitles.filter(\.isTextSubtitle)
         guard !tracks.isEmpty else {
             throw CutieError(probe.subtitles.isEmpty

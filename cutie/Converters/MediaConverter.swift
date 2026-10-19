@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// Native paths are tried first because they're hardware-accelerated and can
 /// often pass the streams through untouched (MOV → MP4 in a second).
 nonisolated enum MediaConverter {
-    static let audioFormats: Set<Format> = [.mp3, .m4a, .wav, .flac, .aiff, .ogg, .opus, .wma]
+    static var audioFormats: Set<Format> { FFmpeg.audioOnlyFormats }
 
     static func convert(_ input: URL, to format: Format, at output: URL, context: JobContext, scratch: Scratch) async throws {
         try MediaChecks.checkComplete(input)
@@ -17,7 +17,7 @@ nonisolated enum MediaConverter {
         let hasFFmpeg = context.toolbox.ffmpeg != nil
         let probe = hasFFmpeg ? try await FFmpeg.probe(input, context: context) : FFmpeg.Probe()
 
-        if audioFormats.contains(format), hasFFmpeg, probe.audio.isEmpty {
+        if audioFormats.contains(format), hasFFmpeg, probe.isKnown, probe.audio.isEmpty {
             throw CutieError("This file has no sound.")
         }
 
@@ -39,7 +39,9 @@ nonisolated enum MediaConverter {
             }
             return try await FFmpeg.convert(input, to: format, at: output, context: context, probe: probe)
         }
-        try await MediaChecks.checkLength(of: output, against: input, context: context)
+        // A sound-only result is as long as the sound, which can end before the picture.
+        let expected = audioFormats.contains(format) ? await MediaChecks.trackDuration(of: input, type: .audio) : nil
+        try await MediaChecks.checkLength(of: output, against: input, expected: expected, context: context)
     }
 
     // MARK: - AVFoundation

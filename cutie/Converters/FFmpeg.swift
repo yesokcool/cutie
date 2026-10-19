@@ -30,15 +30,25 @@ nonisolated enum FFmpeg {
         var rotation = 0.0
         var isDefault = false
         var language: String?
+        /// Seconds, when the container says (MP4 per stream, Matroska in a DURATION tag).
+        var duration: Double?
+        /// Bits per second, when known (lossy audio).
+        var bitRate = 0
 
         /// PQ (HDR10, Dolby Vision base) or HLG.
         var isHDR: Bool { ["smpte2084", "arib-std-b67"].contains(colorTransfer ?? "") }
-        /// Subtitles stored as text (as opposed to Blu-ray/DVD pictures).
-        var isTextSubtitle: Bool { ["subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text", "microdvd", "subviewer", "jacosub"].contains(codec) }
+        /// Subtitles stored as text (as opposed to Blu-ray/DVD pictures). EIA-608
+        /// captions count: ffmpeg decodes them to text.
+        var isTextSubtitle: Bool {
+            ["subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text", "microdvd", "subviewer", "jacosub", "eia_608"].contains(codec)
+        }
         var isLossless: Bool { codec.hasPrefix("pcm_") || ["flac", "alac", "wavpack", "ape", "tta", "truehd", "mlp"].contains(codec) }
     }
 
     struct Probe: Sendable {
+        /// False when ffprobe isn't installed: nothing is known about the streams,
+        /// so jobs fall back to a plain mapping instead of assuming there's no sound.
+        var isKnown = true
         var streams: [Stream] = []
         var duration: Double?
         var chapters = 0
@@ -51,11 +61,22 @@ nonisolated enum FFmpeg {
         var isHDR: Bool { video.first?.isHDR ?? false }
         /// The audio track a single-track format gets: the default one, else the first.
         var mainAudio: Stream? { audio.first { $0.isDefault } ?? audio.first }
+
+        /// How long a result holding only some of the streams should be: the
+        /// sound alone can end before the picture, or outlast it.
+        func expectedDuration(audioOnly: Bool, dropAudio: Bool) -> Double? {
+            if audioOnly { return mainAudio?.duration ?? duration }
+            if dropAudio { return video.compactMap(\.duration).max() ?? duration }
+            return duration
+        }
     }
+
+    /// Formats that hold only sound.
+    static let audioOnlyFormats: Set<Format> = [.mp3, .m4a, .wav, .flac, .aiff, .ogg, .opus, .wma]
 
     /// What's inside a media file. Throws when ffprobe can't read it (damaged or not media).
     static func probe(_ input: URL, context: JobContext) async throws -> Probe {
-        guard let ffprobe = context.toolbox.ffprobe else { return Probe() }
+        guard let ffprobe = context.toolbox.ffprobe else { return Probe(isKnown: false) }
         let json: String
         do {
             json = try await Shell.run(ffprobe, ["-v", "error", "-print_format", "json",
@@ -83,12 +104,20 @@ nonisolated enum FFmpeg {
             stream.isCover = number(disposition["attached_pic"]) == 1
             stream.isDefault = number(disposition["default"]) == 1
             stream.language = tags["language"] as? String
+            stream.duration = number(item["duration"]) ?? clockSeconds(tags["DURATION"] as? String)
+            stream.bitRate = Int(number(item["bit_rate"]) ?? 0)
             for side in item["side_data_list"] as? [[String: Any]] ?? [] {
                 if let rotation = number(side["rotation"]) { stream.rotation = rotation }
             }
             probe.streams.append(stream)
         }
         return probe
+    }
+
+    /// "00:01:02.500000000" → 62.5 (Matroska's DURATION tag).
+    static func clockSeconds(_ text: String?) -> Double? {
+        guard let parts = text?.split(separator: ":").compactMap({ Double($0) }), parts.count == 3 else { return nil }
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
     }
 
     private static func number(_ value: Any?) -> Double? {
@@ -121,6 +150,9 @@ nonisolated enum FFmpeg {
         var dropAudio = false
         /// Degrees (counter-clockwise) to add to the display rotation of copied video.
         var addRotation = 0.0
+        /// Re-encoded sound keeps its own codec, depth and bitrate (Even Volume:
+        /// Apple Lossless stays Apple Lossless whatever the container).
+        var keepCodec = false
     }
 
     /// Containers each video codec can be copied into as is.
@@ -152,10 +184,14 @@ nonisolated enum FFmpeg {
         }
     }
 
+    /// Subtitle codecs Matroska holds as they are; other text subtitles become SRT.
+    static let matroskaSubtitles: Set<String> = ["subrip", "srt", "ass", "ssa", "webvtt", "hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle"]
+
     /// The full ffmpeg argument list (after `-i`) that turns `probe`'s streams into `format`.
     static func arguments(for format: Format, probe: Probe, options: Options = Options(), toolbox: Toolbox) -> [String] {
         if format == .gif { return gifArguments }
-        let audioOnly = [.mp3, .m4a, .wav, .flac, .aiff, .ogg, .opus, .wma].contains(format)
+        if !probe.isKnown { return unprobedArguments(for: format, options: options, toolbox: toolbox) }
+        let audioOnly = audioOnlyFormats.contains(format)
         var maps: [String] = []
         var codecs: [String] = []
         var output = 0
@@ -206,8 +242,10 @@ nonisolated enum FFmpeg {
         if !audioOnly {
             // (A `where` on a multi-pattern `case` only guards the last pattern, so this is an if chain.)
             for stream in probe.subtitles {
-                if format == .mkv {
+                if format == .mkv && matroskaSubtitles.contains(stream.codec) {
                     add(stream, ["-c:{i}", "copy"])
+                } else if format == .mkv && stream.isTextSubtitle {
+                    add(stream, ["-c:{i}", "srt"]) // MP4's mov_text and EIA-608 captions can't go into Matroska as they are
                 } else if (format == .mp4 || format == .mov) && stream.isTextSubtitle {
                     add(stream, ["-c:{i}", "mov_text"])
                 } else if format == .webm && stream.isTextSubtitle {
@@ -236,6 +274,25 @@ nonisolated enum FFmpeg {
         case .wav: arguments += ["-rf64", "auto"]
         default: break
         }
+        return arguments
+    }
+
+    /// Without ffprobe: the first video and every audio track (or just the
+    /// first, for a sound-only format), encoded for `format`.
+    static func unprobedArguments(for format: Format, options: Options, toolbox: Toolbox) -> [String] {
+        let audioOnly = audioOnlyFormats.contains(format)
+        let unknown = Stream(index: 0, type: "", codec: "")
+        func forType(_ arguments: [String], _ type: String) -> [String] {
+            arguments.map { $0.replacingOccurrences(of: "{i}", with: type) }
+        }
+        var arguments = audioOnly ? ["-map", "0:a:0"] : ["-map", "0:v:0?"] + (options.dropAudio ? [] : ["-map", "0:a?"])
+        if !audioOnly { arguments += forType(videoEncoder(for: format, stream: unknown, options: options), "v") }
+        if audioOnly || !options.dropAudio {
+            arguments += forType(audioEncoder(for: format, stream: unknown, options: options, toolbox: toolbox), "a")
+            if let filter = options.audioFilter { arguments += ["-filter:a", filter] }
+        }
+        arguments += ["-map_metadata", "0"]
+        if [.mp4, .mov, .m4a].contains(format) { arguments += ["-movflags", "+faststart"] }
         return arguments
     }
 
@@ -288,7 +345,8 @@ nonisolated enum FFmpeg {
     /// Audio encoding per format, keeping the sample rate and the bit depth of
     /// lossless sources; bitrates grow with the channel count.
     static func audioEncoder(for format: Format, stream: Stream, options: Options, toolbox: Toolbox) -> [String] {
-        let channels = max(1, stream.channels)
+        if options.keepCodec, let same = sameCodec(stream, toolbox: toolbox) { return same }
+        let channels = stream.channels > 0 ? stream.channels : 2 // unknown (no ffprobe): assume stereo
         func perChannel(_ kbps: Int, cap: Int = 640) -> String { "\(min(cap, kbps * channels))k" }
         let deep = stream.bitDepth > 16
         switch format {
@@ -304,9 +362,9 @@ nonisolated enum FFmpeg {
         case .webm, .ogg, .opus:
             return ["-c:{i}", "libopus", "-b:{i}", perChannel(options.compact ? 48 : 80, cap: 510)]
         case .avi, .mp3:
-            return ["-c:{i}", "libmp3lame", "-q:{i}", options.compact ? "4" : "0", "-ac:{i}", String(min(2, channels))]
+            return ["-c:{i}", "libmp3lame", "-q:{i}", options.compact ? "4" : "0"] + (channels > 2 ? ["-ac:{i}", "2"] : [])
         case .wmv, .wma:
-            return ["-c:{i}", "wmav2", "-b:{i}", "192k", "-ac:{i}", String(min(2, channels))]
+            return ["-c:{i}", "wmav2", "-b:{i}", "192k"] + (channels > 2 ? ["-ac:{i}", "2"] : [])
         case .wav:
             if stream.codec.hasPrefix("pcm_f") { return ["-c:{i}", "pcm_f32le"] } // float stays float
             return ["-c:{i}", deep ? "pcm_s24le" : "pcm_s16le"]
@@ -316,6 +374,23 @@ nonisolated enum FFmpeg {
             return ["-c:{i}", "flac", "-sample_fmt:{i}", deep ? "s32" : "s16"]
         default:
             return ["-c:{i}", "copy"]
+        }
+    }
+
+    /// The source's own codec at its own depth and bitrate, for jobs that only
+    /// change the sound's level. Nil for codecs ffmpeg can't write back.
+    static func sameCodec(_ stream: Stream, toolbox: Toolbox) -> [String]? {
+        let deep = stream.bitDepth > 16
+        let bitrate = stream.bitRate > 0 ? ["-b:{i}", "\(max(32, stream.bitRate / 1000))k"] : []
+        switch stream.codec {
+        case "alac": return ["-c:{i}", "alac", "-sample_fmt:{i}", deep ? "s32p" : "s16p"]
+        case "flac": return ["-c:{i}", "flac", "-sample_fmt:{i}", deep ? "s32" : "s16"]
+        case let codec where codec.hasPrefix("pcm_"): return ["-c:{i}", codec]
+        case "aac": return aacEncoder(toolbox) + (bitrate.isEmpty ? ["-b:{i}", "\(min(640, 128 * max(1, stream.channels)))k"] : bitrate)
+        case "mp3": return ["-c:{i}", "libmp3lame"] + (bitrate.isEmpty ? ["-q:{i}", "0"] : bitrate)
+        case "opus": return ["-c:{i}", "libopus"] + bitrate
+        case "vorbis": return ["-c:{i}", "libvorbis"] + bitrate
+        default: return nil
         }
     }
 
@@ -380,17 +455,14 @@ nonisolated enum FFmpeg {
         }
         try await run(input: input, output: output, arguments: arguments(for: format, probe: probe, options: options, toolbox: context.toolbox),
                       context: context, inputOptions: inputOptions)
-        if format != .gif { try await MediaChecks.checkLength(of: output, against: input, expected: probe.duration, context: context) }
+        if format != .gif {
+            let expected = probe.isKnown
+                ? probe.expectedDuration(audioOnly: audioOnlyFormats.contains(format), dropAudio: options.dropAudio) : nil
+            try await MediaChecks.checkLength(of: output, against: input, expected: expected, context: context)
+        }
         if [.mp4, .mov].contains(format) {
             try await MediaConverter.restoreAppleMetadata(from: input, into: output, keepsChapters: probe.chapters > 0, context: context)
         }
-    }
-
-    /// Whether a file has an audio stream (so "MP3" on a silent video fails kindly).
-    static func hasAudio(_ input: URL, context: JobContext) async -> Bool {
-        guard let ffprobe = context.toolbox.ffprobe else { return true }
-        let text = try? await Shell.run(ffprobe, ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", input.path])
-        return !(text ?? "x").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Runs ffmpeg with its log (stderr) captured, for filters that report

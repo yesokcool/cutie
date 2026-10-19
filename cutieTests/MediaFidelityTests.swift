@@ -310,4 +310,73 @@ struct MediaFidelityTests {
         try movie.prefix(movie.count / 2).write(to: cutMKV)
         await #expect(throws: (any Error).self) { _ = try await Executor.run(.convert(.mp4), inputs: [cutMKV], context: context) }
     }
+
+    // MARK: Review fixes
+
+    @Test func mp4SubtitlesGoIntoMKV() async throws {
+        defer { fixtures.remove() }
+        guard ffmpeg != nil else { return }
+        let mp4 = try await run(.convert(.mp4), try await movie())
+        #expect(try await probe(mp4).subtitles.map(\.codec) == ["mov_text", "mov_text"])
+        let mkv = try await run(.convert(.mkv), mp4)
+        let streams = try await probe(mkv)
+        #expect(streams.subtitles.map(\.codec) == ["subrip", "subrip"])
+        #expect(streams.audio.count == 2)
+        let text = try await Shell.run(ffmpeg!, ["-v", "error", "-i", mkv.path, "-map", "0:s:0", "-f", "srt", "-"])
+        #expect(text.contains("Hello there"))
+    }
+
+    @Test func evenVolumeKeepsTheCodec() async throws {
+        defer { fixtures.remove() }
+        guard ffmpeg != nil else { return }
+        for name in ["lossless.m4a", "lossless.caf"] {
+            let alac = try await make(name, ["-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=96000:duration=3",
+                                             "-af", "volume=-20dB", "-c:a", "alac", "-sample_fmt", "s32p"])
+            let even = try #require(try await probe(try await run(.tool(.normalizeAudio), alac)).mainAudio)
+            #expect(even.codec == "alac", "\(name)")
+            #expect(even.bitDepth > 16, "\(name)")
+            #expect(even.sampleRate == 96_000, "\(name)")
+        }
+        let aac = try await make("talk.m4a", ["-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:a", "aac", "-b:a", "128k"])
+        #expect(try await probe(try await run(.tool(.normalizeAudio), aac)).mainAudio?.codec == "aac")
+    }
+
+    @Test func worksWithoutFFprobe() async throws {
+        defer { fixtures.remove() }
+        guard ffmpeg != nil else { return }
+        var toolbox = context.toolbox
+        toolbox.ffprobe = nil
+        let bare = JobContext(toolbox: toolbox, output: Output(location: .nextToOriginal), imageQuality: 0.85)
+        let tone = try fixtures.wav("tone.wav", seconds: 2)
+        let mp3 = try #require(try await Executor.run(.convert(.mp3), inputs: [tone], context: bare).files.first)
+        let sound = try #require(try await probe(mp3).mainAudio)
+        #expect(sound.codec == "mp3" && sound.channels == 1)
+
+        let input = try await movie()
+        let mp4 = try #require(try await Executor.run(.convert(.mp4), inputs: [input], context: bare).files.first)
+        let streams = try await probe(mp4)
+        #expect(streams.video.count == 1)
+        #expect(!streams.audio.isEmpty)
+        let audio = try #require(try await Executor.run(.tool(.extractAudio), inputs: [input], context: bare).files.first)
+        #expect(try await probe(audio).audio.count == 1)
+    }
+
+    @Test func soundShorterOrLongerThanThePicture() async throws {
+        defer { fixtures.remove() }
+        guard ffmpeg != nil else { return }
+        let shortSound = try await make("short-sound.mp4", [
+            "-f", "lavfi", "-i", "testsrc=duration=4:size=160x120:rate=10", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        ])
+        _ = try await run(.convert(.mp3), shortSound)
+        _ = try await run(.tool(.extractAudio), shortSound)
+        let native = try await Executor.run(.convert(.m4a), inputs: [shortSound], context: fixtures.context)
+        #expect(native.files.count == 1)
+
+        let longSound = try await make("long-sound.mkv", [
+            "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=10", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        ])
+        _ = try await run(.tool(.muteVideo), longSound)
+    }
 }
