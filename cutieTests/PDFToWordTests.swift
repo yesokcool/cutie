@@ -213,7 +213,9 @@ struct PDFToWordTests {
         let xlsx = try await convert(try reportPDF(fixtures), to: .xlsx, fixtures)
         let book = try await XLSX.read(xlsx, scratch: try Scratch())
         #expect(book.sheets.count == 1)
-        #expect(book.sheets[0].rows == [["Item", "Qty", "Price"], ["Apples", "3", "1.20"], ["Pears", "5", "2400.50"]], "\(book.sheets[0].rows)")
+        #expect(book.sheets[0].textRows == [["Item", "Qty", "Price"], ["Apples", "3", "1.20"], ["Pears", "5", "2,400.50"]], "\(book.sheets[0].textRows)")
+        #expect(book.sheets[0].rows[2][2].value == 2400.5)
+        #expect(book.sheets[0].rows[1][2].value == 1.2)
 
         await #expect(throws: (any Error).self) {
             _ = try await Executor.run(.convert(.xlsx), inputs: [try fixtures.scannedPDF("plain.pdf")], context: fixtures.context)
@@ -231,7 +233,7 @@ struct PDFToWordTests {
         #expect(PDFToWord.listMarker(line("iv. Figs"))?.number == 4)
         #expect(PDFToWord.listMarker(line("2024 was a year")) == nil)
         #expect(PDFToWord.listMarker(line("-5 degrees")) == nil)
-        #expect(PDFToWord.spreadsheetValue("1,234.50") == "1234.50")
-        #expect(PDFToWord.spreadsheetValue("02134") == "02134")
+        #expect(Workbook.Cell.inferred(from: "1,234.50").value == 1234.5)
+        #expect(Workbook.Cell.inferred(from: "02134").value == nil)
     }
 }

@@ -19,23 +19,15 @@ nonisolated enum PDFToWord {
         for (pageIndex, layout) in layouts.enumerated() {
             for (tableIndex, table) in layout.tables.enumerated() {
                 let rows = table.cells.map { row in
-                    row.map { cell in cell.covered ? "" : spreadsheetValue(cell.lines.map(\.text).joined(separator: " ")) }
+                    // Typed as Excel would type them: "2,400.50" is a number shown with its grouping.
+                    row.map { cell in cell.covered ? "" : cell.lines.map(\.text).joined(separator: " ") }
                 }
                 let suffix = layout.tables.count > 1 ? " (\(tableIndex + 1))" : ""
-                sheets.append(.init(name: "Page \(pageIndex + 1)\(suffix)", rows: rows))
+                sheets.append(.init(name: "Page \(pageIndex + 1)\(suffix)", text: rows))
             }
         }
         guard !sheets.isEmpty else { throw CutieError("No tables found in this PDF.") }
         try await XLSX.write(Workbook(sheets: sheets), to: output, scratch: scratch)
-    }
-
-    /// "1,234.50" → "1234.50", so Excel gets a number; anything else stays as written.
-    static func spreadsheetValue(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if trimmed.range(of: #"^-?\d{1,3}(,\d{3})+(\.\d+)?$"#, options: .regularExpression) != nil {
-            return trimmed.replacingOccurrences(of: ",", with: "")
-        }
-        return trimmed
     }
 
     private static func read(_ input: URL, context: JobContext) async throws -> (PDFDocument, [PDFPageLayout]) {

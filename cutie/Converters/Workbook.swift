@@ -137,7 +137,10 @@ nonisolated enum SpreadsheetNumber {
             return Parsed(value: value, kind: .currency(symbol), formatCode: code)
         }
         if percent { return Parsed(value: value / 100, kind: .percent, formatCode: digits + "%") }
-        return Parsed(value: value, kind: .number, formatCode: grouped ? "#,##" + digits : nil)
+        if grouped { return Parsed(value: value, kind: .number, formatCode: "#,##" + digits) }
+        // "1.20" keeps showing 1.20 (a price, a measurement); "1.25" needs no format to show as written.
+        let trailingZero = decimals > 0 && !normalized.lowercased().contains("e") && normalized.hasSuffix("0")
+        return Parsed(value: value, kind: .number, formatCode: trailingZero ? digits : nil)
     }
 
     /// "1,234.50" → "1234.50"; nil unless it's digits with well-placed groups.
