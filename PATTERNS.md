@@ -77,6 +77,13 @@ out a quarter of the icon. Wrap the path in a 1024×1024 SVG with
   label for a moment, then the container's merged glass faded in over it and
   the names vanished (2026-10-19, seen live; snapshots use a flat stand-in, so
   tests can't catch it). Apply the glass to the view that holds the label.
+- **Liquid Glass leaves the window's own pixels transparent**, and macOS
+  sends drags and clicks over transparent pixels of a borderless window to the
+  window below: mid-drag, only the slice labels caught the file. `WheelDropView`
+  fills the wheel and switcher at 2% black so every part is a target.
+- **Observation redraws on every set, even of the same value.** The drop
+  view's hover fires at every pointer move; setting `highlighted` each time
+  redrew the glass ring (and looked up Finder icons) at 60 Hz. Set only changes.
 - **Live Text's first run takes ~20 s** while the model loads (tests included).
 - **ImageIO says a truncated JPEG is complete.** `CGImageSourceGetStatusAtIndex`
   returns `.statusComplete` for a half file and decoding fills the rest with

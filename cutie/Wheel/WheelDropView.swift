@@ -5,7 +5,9 @@ import AppKit
 /// keyboard mode takes arrows, Return, Escape, clicks and modifier taps.
 /// SwiftUI only draws: every event stops at this view.
 final class WheelDropView: NSView {
-    var geometry = WheelGeometry(count: 0)
+    var geometry = WheelGeometry(count: 0) {
+        didSet { needsDisplay = true }
+    }
     var onHover: (Int?) -> Void = { _ in }
     var onDrop: ([URL]) -> Bool = { _ in false }
     var onChoose: () -> Void = {}
@@ -28,6 +30,17 @@ final class WheelDropView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         frame.contains(point) ? self : nil
+    }
+
+    /// Liquid Glass is composited by the window server, so the panel's own
+    /// pixels stay see-through under it, and macOS hands a drag (or click) over
+    /// see-through pixels to the window below: only the labels caught the file.
+    /// A barely-there fill over the whole wheel and switcher makes all of it a target.
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.withAlphaComponent(0.02).setFill()
+        let side = geometry.wheelSide
+        NSBezierPath(ovalIn: NSRect(x: bounds.midX - side / 2, y: bounds.maxY - side, width: side, height: side)).fill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: bounds.width, height: WheelGeometry.footerHeight)).fill()
     }
 
     override func updateTrackingAreas() {
