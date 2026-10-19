@@ -98,3 +98,58 @@ out a quarter of the icon. Wrap the path in a 1024×1024 SVG with
 - **`PDFPage.draw(with:to:)` and `transform(for:)`** include the box offset and
   rotation; Make Searchable inverts that transform to map Live Text's boxes
   (read from the upright render) back onto the unrotated page.
+
+### Media (2026-10-19)
+- **ffmpeg's `-movflags use_metadata_tags`** writes keys AVFoundation reads as
+  `itsk/%00%00%00%01`, so Photos sees no location. Results from an
+  iPhone-style source are re-saved through an AVFoundation passthrough with
+  `session.metadata` (→ `loci`/`date` in MP4, `mdta` kept in MOV). That
+  passthrough drops chapter text tracks, so it's skipped when there are
+  chapters. `use_metadata_tags` also makes the mov muxer drop cover art
+  (`covr`), so it's off when there's a cover.
+- **Homebrew's ffmpeg has no zscale or libplacebo**, so it can't tone-map HDR;
+  `AVVideoComposition.Configuration` with Rec. 709 colour does it instead.
+- **libopus rejects the 5.1(side) layout**: `aformat` plus `-mapping_family 1`.
+- **loudnorm reports only on stderr**; `FFmpeg.runCapturingLog` captures it
+  through `sh -c 'exec "$0" "$@" 2>&1'`.
+- **`-display_rotation:v:0` is an input option** and uses ffprobe's sign
+  (−90 means clockwise).
+- **An ffmpeg-written test MOV isn't iPhone-like**: tests write camera keys
+  through AVFoundation.
+
+### Documents and spreadsheets (2026-10-19)
+- **Cocoa's HTML import reads 1 CSS px as 1 pt** (default text 12) and its
+  export writes pt as px, hence `HTML.rewritingCSSLengths` (style regions only).
+- **soffice exits 0 even when it couldn't load a file**: the output file is
+  the only proof. Its CSV export needs filter option 9 = true ("as shown"),
+  or currency comes out raw.
+- **pandoc's DOCX reader nests media as `media/media/…`** and turns sized
+  images into `<img>`; a Lua filter and flattening keep Markdown clean.
+- **`NSAttributedString` can't cross into a `@concurrent` function**, even as
+  a fresh copy (region rules), so `PDFRenderer` archives it first.
+- **A `DateFormatter` per cell made a 1M-cell XLSX take 48 s and 1.1 GB.**
+  Compile each format code once per style; cache month names.
+- **UTF-16 without a BOM is valid UTF-8** (its zero bytes are legal), so it's
+  checked first. Windows-1252 vs Mac Roman: Mac Roman's high half is mostly
+  letters, so a capital mid-word counts against it (`TextDecoding.plausibility`).
+- **Raw strings containing `"#`** (`"#FF0000"`, `"$"#,##0`) need `##"…"##`.
+
+### PDF → Word (2026-10-19)
+- **`PDFPage.characterBounds(at:)` drifts by one after every line break and
+  ligature**; use `page.selection(for: NSRange(i, 1))?.bounds(for:)`.
+- **PDFKit's text loses bold, italic and font names for fonts that aren't
+  installed** (falls back to Times); `PDFContent` reads them from the content
+  stream.
+- **PDFKit can list a line's pieces out of order** ("Page of 1 10"); sort by
+  x, except in right-to-left scripts.
+
+### Archives and robustness (2026-10-19)
+- **bsdtar asks for a ZIP password on the terminal and hangs**: always pass
+  `--passphrase`, and `-p<dummy>` to 7-Zip. bsdtar reports a split 7z as
+  "tar: (null)".
+- **`ditto -c -k` ZIPs have no UTF-8 flag** (Windows shows garbled names) and
+  add `__MACOSX`; bsdtar ZIPs are clean but drop xattrs. `ditto -x -k`
+  restores Finder tags on extraction.
+- **`volumeAvailableCapacityForImportantUsage` is 0 on non-boot disks**; fall
+  back to `volumeAvailableCapacity`. Tests stand in for an external drive with
+  an `hdiutil create` / `attach -nobrowse` disk image.

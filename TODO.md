@@ -20,58 +20,32 @@
 - [ ] Glass look in light and dark (snapshots only show a flat stand-in).
 
 ## Pro-grade pass
-> **In plain words:** a fidelity audit (2026-10-19) ran the real engine on
-> fixtures built to stress each case. Image conversion and native MOV↔MP4 are
-> close to pro tools; documents, spreadsheets, PDF→office and the ffmpeg path
-> are not, and some paths lose data without saying so. The goal is output a
-> professional would trust. In order of impact:
+> **In plain words:** a fidelity audit (2026-10-19) found that documents,
+> spreadsheets, PDF → office and the ffmpeg path weren't good enough for
+> professionals, and some paths lost data silently. All of it was rebuilt the
+> same day, with fidelity tests for each point. What's left:
 
-- [ ] **Never report a broken result as done.** Images are done
-      (`FileIntegrity`; the same box walk fits MP4/MOV). Fail when ffmpeg's output is much shorter
-      than the input (`FFmpeg.swift:36-49`); show the useful stderr line, not
-      the last (`Shell.swift:13`); drop the 5000-page cap
-      (`PDFRenderer.swift:21`); render off the main thread.
-- [ ] **Text encodings:** Windows-1252/1250/MacRoman CSV, SRT and TXT fail
-      today (`DocumentReader.swift:62-66`). Detect with
-      `NSString.stringEncoding(for:…)`.
-- [ ] **Spreadsheets:** apply `styles.xml` number formats when reading XLSX
-      (dates come out as serials, 8.25% as 0.0825; `XLSX.swift:62-72`); print
-      numbers to 15 significant digits instead of turning them into text
-      (`XMLText.swift:22-28`); detect the CSV delimiter (`Spreadsheet.swift:9`);
-      stream sheets with `XMLParser` (a 14 MB XLSX peaked at 3.9 GB).
-- [ ] **ffmpeg rewrite:** probe first and remux with `-c copy` when streams fit;
-      keep every stream (`-map 0:v:0 -map 0:a? -map 0:s?`, `mov_text`),
-      `-map_metadata 0 -map_chapters 0`; HDR to 10-bit HEVC (`hvc1`), never
-      10-bit H.264 or 8-bit with PQ tags (`FFmpeg.swift:10-13`,
-      `MediaTools.swift:25`); `aac_at`, bitrate per channel, 24-bit PCM when
-      the source is, cover art kept; two-pass loudnorm with `-ar`
-      (`MediaTools.swift:117-122`).
-- [ ] **Keep video metadata** (capture date, GPS) on Compress/Mute/Rotate:
-      copy `asset.metadata` (`MediaTools.swift:37-46,62-77`).
-- [x] **Images** (2026-10-19): truncated files refused (`FileIntegrity`);
-      lossless JPEG rotate/flip/strip; tools keep colour space and depth;
-      gain maps kept in JPG/HEIC/AVIF, PQ tone-mapped for SDR; every frame of
-      GIF/APNG/WebP animations; DPI and XMP carried over; lossless sources make
-      lossless WebP.
-- [x] **PDF** (2026-10-19): CropBox renders; JPEGs go into PDFs as JPEG;
-      merge keeps title and a bookmark per file with its own bookmarks; split
-      keeps title/author; OCR per page in reading order
-      (`RecognizeDocumentsRequest`); Compress via Ghostscript or a Quartz
-      filter, refusing when it can't shrink; new **Make Searchable** tool
-      (invisible text layer, rotation, links and bookmarks kept).
-- [ ] **Office documents:** route DOCX→PDF through Pages and XLSX→PDF through
-      Numbers when installed (`Executor.swift:53,64`); LibreOffice
-      (`soffice --headless`) and pandoc as detected helpers for real layout,
-      formulas, PPTX without Keynote, and structured MD/DOCX/EPUB. In-house now:
-      Markdown body at 16 pt (`HTML.swift:34`), absolute `file://` image paths
-      in HTML (`Markdown.swift:48-49`), page size from the locale.
-- [ ] **PDF → Word:** text only today. Build it from Vision document structure
-      plus extracted images, or call it "PDF → Text".
-- [ ] **Smaller:** scratch on the output's volume
-      (`.itemReplacementDirectory`, `Scratch.swift:8`); 7z for passwords and
-      multi-volume archives; translate subtitle tags, ASS, subtitles out of
-      video.
-- [ ] **Fidelity tests** from the audit's fixtures, so these stay fixed.
+- [x] **Images**, **PDF**, **video and audio**, **spreadsheets**, **text
+      encodings**, **subtitles**, **office documents** (LibreOffice, pandoc),
+      **PDF → Word / Excel**, **robustness** (plain errors, scratch on the
+      result's disk, password and split archives, cut-off files refused,
+      cancelled batches leave nothing) — 2026-10-19, see the decision log.
+- [ ] **PDF → Word, next:** multi-column pages (come out as one column),
+      footnotes (become paragraphs), text boxes and sidebars (inline). Route
+      PDF → RTF/HTML/EPUB/Markdown through the same model (still text only).
+- [ ] **Picture subtitles** (DVD/Blu-ray) to text needs OCR of each cue.
+- [ ] **HDR → SDR video** goes through a ProRes 422 intermediate: large for
+      long 4K clips. A streaming tone-map would avoid it.
+- [ ] **LibreOffice runs with a fresh profile per job** (safe, a few seconds
+      slower). A cached profile with a lock would be faster.
+- [ ] **Password entry** for encrypted archives (they're reported, not opened).
+
+## Verify on the Mac (pro-grade pass)
+- [ ] Pages DOCX → PDF and Numbers XLSX → PDF with LibreOffice *not*
+      installed (Cutie falls back to them; untested because they open on screen).
+- [ ] Open a PDF → Word result in Microsoft Word and in Pages.
+- [ ] LibreOffice conversions never show a Dock icon or window.
+- [ ] An iPhone video after Compress/Mute/Rotate still shows its place in Photos.
 
 ## Buildable now
 - [ ] *Drags from apps that don't hand over a file path* (Photos, Mail
@@ -81,8 +55,6 @@
 - [ ] *Merge videos* (Tools, several videos): one after another, scaled to the
       first's size (ffmpeg concat filter, or AVMutableComposition + a video
       composition).
-- [ ] *PDF → Excel*: tables out of PDFs. Needs real table detection; not
-      offered until it's good.
 - [ ] *Choose the Finder-selection shortcut* (fixed at ⌃⌥C today).
 - [ ] *Open With / drop on the menu bar icon* as other ways to open the wheel.
 - [ ] *Keyboard mode extras*: type a format's first letter to jump to it.

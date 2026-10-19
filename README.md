@@ -40,42 +40,68 @@ the same key to close. The keys can be changed in Settings.
 
 ## What it converts
 
+The aim is output a professional would trust: nothing about a file changes
+unless that's what you asked for, and a damaged or half-downloaded file is
+refused rather than "converted".
+
 - **Images:** JPG, PNG, HEIC, AVIF, TIFF, GIF, BMP, PDF; also reads SVG,
   WebP and camera RAW. WebP output needs `cwebp`. Colour profiles (Display
   P3, CMYK where the format allows), 16-bit depth, DPI, camera metadata
   (EXIF, GPS, XMP) and animation carry over; an HDR photo keeps its gain map
-  in JPG, HEIC and AVIF and is tone-mapped for the rest. Damaged or
-  half-downloaded images are refused instead of converted.
+  in JPG, HEIC and AVIF and is tone-mapped for the rest.
 - **Video and audio:** MP4, MOV, GIF, M4A, WAV, AIFF, FLAC. With ffmpeg:
-  MP3, OGG, Opus, WMA, MKV, WebM, AVI, WMV.
-- **PDF** to Word, plain text, Markdown, RTF, HTML, EPUB, PowerPoint, or
+  MP3, OGG, Opus, WMA, MKV, WebM, AVI, WMV. Every audio track, subtitle,
+  chapter, cover and tag is kept; streams that already fit the new format are
+  copied, not re-encoded; HDR stays HDR (10-bit HEVC) and is tone-mapped for
+  GIF, AVI and WMV; hi-res audio keeps its bit depth and sample rate; an
+  iPhone video keeps its date and location.
+- **PDF** to Word (rebuilt: headings, paragraphs, lists, tables, pictures and
+  charts, fonts and colours, page sizes, header and footer), Excel (each table
+  on its own sheet), plain text, Markdown, RTF, HTML, EPUB, PowerPoint, or
   JPG/PNG pages (the crop box, at 300 DPI). Scanned pages are read with Live
   Text, page by page, in reading order.
 - **Documents:** Word, Markdown, plain text, RTF, HTML, EPUB, ODT, PDF.
-- **Spreadsheets:** Excel, CSV, TSV, ODS, PDF.
-- **Subtitles:** SRT and VTT.
-- **Archives:** ZIP, TAR, GZIP; also opens RAR and 7z.
+  Pages are A4 or Letter by region and text keeps its print size. With
+  LibreOffice, Word/ODT/RTF to PDF keep their real layout; with pandoc,
+  headings, tables, footnotes, links and pictures survive between Word,
+  Markdown, HTML and EPUB.
+- **Spreadsheets:** Excel, CSV, TSV, ODS, PDF, shown as Excel shows them:
+  dates, percentages, currency and decimals as formatted, ZIP codes keep their
+  zero, merged cells kept. CSV separators (comma, semicolon, tab, pipe) and
+  decimal commas are detected; CSV output opens right in Excel. With
+  LibreOffice, Excel ↔ ODS keeps formulas and styles.
+- **Slides:** with Keynote, Keynote and PowerPoint; with LibreOffice alone,
+  PowerPoint to PDF, PNG or JPG.
+- **Subtitles:** SRT, VTT and ASS/SSA, keeping italics, bold, colours and
+  top-of-screen placement.
+- **Text files** in any encoding (UTF-8, UTF-16, Windows, old Mac).
+- **Archives:** ZIP, TAR, GZIP; also opens RAR and 7z (split archives with
+  7-Zip). Password-protected archives say so. Mac ZIPs keep Finder tags, and
+  downloaded archives keep their quarantine.
 - **Pages, Keynote and Numbers** files, through those apps when they're
   installed.
 
 **Tools** include compress, half size, rotate, flip, square crop, black and
 white, remove background, get text (Live Text), remove metadata, images to
 one PDF, split / merge / rotate PDFs, make a scanned PDF searchable, trim,
-mute, get audio, 720p, snapshot, even out volume, word count, zip, extract
-and checksum. Image tools keep the file's format, colour, depth, HDR and
-animation; a JPEG's rotate, flip and metadata removal never re-compress it.
-Merged PDFs get a bookmark per file holding its own bookmarks.
+mute, get audio, get subtitles, 720p, snapshot, even out volume, word count,
+zip, extract and checksum. Image tools keep the file's format, colour, depth,
+HDR and animation; a JPEG's rotate, flip and metadata removal never
+re-compress it. Merged PDFs get a bookmark per file holding its own bookmarks.
 
 ## Helpers
 
 Most of Cutie uses macOS itself (ImageIO, AVFoundation, Vision, PDFKit, the
-text system, bsdtar). A few slices need a helper, and only show up when it's
-installed:
+text system, bsdtar). Helpers add formats or do a job better, and Cutie
+uses them only when they're installed:
 
 ```sh
-brew install ffmpeg        # more audio and video formats
-brew install webp          # WebP output, animated too
-brew install ghostscript   # smaller compressed PDFs
+brew install ffmpeg                # more audio and video formats
+brew install webp                  # WebP output, animated too
+brew install ghostscript           # smaller compressed PDFs
+brew install --cask libreoffice    # Word, Excel and PowerPoint with real layout, formulas, slides without Keynote
+brew install pandoc                # heading styles, tables, footnotes, pictures across Word/Markdown/HTML/EPUB
+brew install sevenzip              # split archives, RAR and 7z beyond what macOS opens
 ```
 
 Pages, Keynote and Numbers (free on the Mac App Store) add their formats.
@@ -122,15 +148,20 @@ xcodebuild -project cutie.xcodeproj -scheme cutie \
 ```
 
 The tests convert real files end to end in every family above (except the
-ones Pages, Keynote and Numbers do) and check which slices each wheel shows and
-the wheel's geometry. The drag itself, the panels and the other apps can't be
+ones Pages, Keynote and Numbers do) and check that the results are right, not
+just there: colour, depth, HDR, metadata, streams, layout, cell types. Tests
+that need a helper skip themselves when it isn't installed. They also check
+which slices each wheel shows and the wheel's geometry. The drag itself, the panels and the other apps can't be
 unit-tested; `TODO.md` has the checklist to try by hand.
 
 ## Limits
 
 - Drags from apps that hand over a file promise instead of a file (Photos,
   Mail attachments, images in Safari) are ignored for now.
-- No PDF to Excel and no merging videos yet. `TODO.md` lists what's next.
+- PDF to Word keeps one column per page (multi-column layouts become one),
+  and footnotes and text boxes become ordinary paragraphs.
+- Picture-based subtitles (DVD/Blu-ray) can't be turned into text.
+- No merging videos yet. `TODO.md` lists what's next.
 
 ## Credits
 

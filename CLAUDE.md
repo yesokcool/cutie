@@ -25,21 +25,35 @@ detection works, and every gotcha so far).
   extension), `Format` / `Tool` / `FileAction` (the slices), `Catalog` (which
   slices each wheel shows for these files and this Mac's helpers), `Executor`
   (runs a Convert or Tools slice, `@concurrent`), `Output` + `Scratch` (where
-  results go), `Shell` (runs ffmpeg / bsdtar / zip / osascript), `Toolbox`
+  results go; `Scratch(near:)` sits on the result's disk, `Output.place` stages
+  cross-disk copies under a hidden name), `Shell` (runs ffmpeg / bsdtar / zip /
+  osascript; `Failure.explain` turns stderr into plain words), `Toolbox`
   (which helpers are installed), `FileIntegrity` (spots cut-off files by their
   container structure), `Preferences` (every UserDefaults key).
 - **Converters/**: `ImageConverter` (ImageIO; keeps colour space, depth,
   HDR gain maps, metadata, animation; lossless JPEG edits), `MediaConverter` (AVFoundation
-  first, `FFmpeg` otherwise), `DocumentReader` / `DocumentWriter` (Cocoa text
+  first, `FFmpeg` otherwise: ffprobe first, then a per-stream plan that copies
+  what fits), `MediaChecks` (cut-off inputs, too-short results), `Office`
+  (routes office files to LibreOffice / pandoc / Pages / Numbers, best first),
+  `DocumentReader` / `DocumentWriter` (Cocoa text
   system; main actor because HTML import uses WebKit), `Markdown` (Foundation's
   CommonMark parser → HTML; attributed string → Markdown), `HTML`, `EPUB`,
-  `PDFRenderer`, `PDFConverter` (crop-box renders, Ghostscript/Quartz compression,
-  bookmark-keeping merge, Make Searchable), `PowerPoint` (PDF → PPTX by hand), `Spreadsheet`
-  + `CSV` / `XLSX` / `ODS` (written and read directly), `Subtitles`,
-  `ArchiveConverter` (bsdtar), `IWork` (Pages/Keynote/Numbers via AppleScript).
+  `PDFRenderer` (off the main thread, region paper), `PDFConverter` (crop-box renders,
+  Ghostscript/Quartz compression, bookmark-keeping merge, Make Searchable),
+  `PDFContent` + `PDFPageLayout` + `PDFToWord` + `WordDocument` (PDF → Word/Excel:
+  the content stream for fonts/images/lines, PDFKit for characters, Vision for
+  tables and scans, hand-written WordprocessingML), `PowerPoint` (PDF → PPTX by
+  hand), `Spreadsheet` + `Workbook` (typed cells: shown text, value, kind, format
+  code; merges) + `CSV` / `XLSX` / `ODS` (written and read directly, streamed) +
+  `NumberFormat` (Excel format codes, `SpreadsheetDate`), `TextDecoding` (any
+  text encoding), `Subtitles` (SRT/VTT/ASS through one neutral form),
+  `ArchiveConverter` (bsdtar, `ditto` for ZIP extraction, 7-Zip for split
+  archives) + `ZipDirectory` (encryption/spanning/sizes from the central
+  directory), `IWork` (Pages/Keynote/Numbers via AppleScript).
 - **Tools/**: `ImageTools` (format-preserving pixel tools, Vision background
   removal, Live Text via `RecognizeDocumentsRequest` for reading order),
-  `MediaTools`.
+  `MediaTools` (metadata-keeping AVFoundation paths, two-pass loudnorm, Get
+  Subtitles).
 - **Wheel/**: `DragMonitor` (notices file drags + key taps), `WheelController`
   (opens/switches/closes), `WheelPanel` + `WheelDropView` (the see-through,
   non-activating drop target; all events stop there), `WheelView` & parts
@@ -69,6 +83,12 @@ detection works, and every gotcha so far).
   if chain (bit `MediaConverter` once).
 - Don't write copy in the maintainer's voice (taglines, About text): leave a
   placeholder.
+- **Never let a helper prompt on a terminal.** bsdtar waits forever for a ZIP
+  password unless given `--passphrase`; 7-Zip needs a dummy `-p`; soffice runs
+  `--headless` with a throwaway profile. Helpers must never show UI either.
+- **Fidelity is tested, not assumed.** A change to a converter needs a test
+  that checks the *content* of the result (colour, depth, streams, cell types,
+  structure), not just that a file appeared.
 - **This repo is public.** Nothing personal in tracked files: no names, emails,
   team IDs, real bundle ids or home-folder paths. Those go in
   `Config/Local.xcconfig` or `private/`.
@@ -95,11 +115,20 @@ keys with `@AppStorage`. Never rename a key (it silently resets the setting).
 - Open at login (SMAppService) and the glass look in light and dark.
 
 ## Decision log
-- **2026-10-19** Pro-grade pass (TODO.md): output must be something a
-  professional would trust. Phase 1 done for images and PDF: nothing about a
-  file changes unless the tool is about that thing, and a damaged input is
-  refused, never "converted". Fidelity tests (`ImageFidelityTests`,
-  `PDFFidelityTests`, fixtures in `FidelityFixtures`) hold the line.
+- **2026-10-19** Pro-grade pass (TODO.md), the maintainer: "it needs to be THAT good
+  and THAT solid". Nothing about a file changes unless the tool is about that
+  thing, and a damaged input is refused, never "converted". Fidelity suites
+  (`Image`, `PDF`, `Media`, `Document`, `Spreadsheet`, `SubtitleAndText`,
+  `PDFToWord`, `Robustness`) hold the line.
+- **2026-10-19** LibreOffice and pandoc are optional, detected helpers
+  (the maintainer approved), with the best tool first: LibreOffice for layout, then
+  Pages/Numbers, then built-in; pandoc for structure.
+- **2026-10-19** Media: copy whatever fits the target, re-encode only the
+  rest. Lossless audio in MP4 becomes ALAC; "M4A" means AAC (Apple's `aac_at`).
+- **2026-10-19** Spreadsheet cells carry their shown text plus a typed value;
+  CSV is written as Excel writes it (CRLF, UTF-8 BOM only when not ASCII).
+- **2026-10-19** PDF → Word built in-house (content stream + PDFKit +
+  Vision), no helper: LibreOffice's PDF import makes drawing frames, not text.
 - **2026-10-19** Open source under MIT, with signing values moved out of the
   project file into xcconfigs so a fresh clone builds without a team.
 - **2026-10-18** Unsandboxed app instead of App Store-ready: it must
