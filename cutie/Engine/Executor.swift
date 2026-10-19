@@ -1,0 +1,315 @@
+import AppKit
+import CryptoKit
+
+/// Runs a Convert or Tools slice on the dropped files, off the main thread.
+/// Every output is made in a scratch folder and only moved beside the
+/// original (with a fresh name) once it's complete.
+nonisolated enum Executor {
+    @concurrent
+    static func run(_ item: WheelItem, inputs: [URL], context: JobContext) async throws -> JobOutcome {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        switch item.kind {
+        case .convert(let format):
+            return try await convert(inputs, to: format, context: context, scratch: scratch)
+        case .tool(let tool):
+            return try await runTool(tool, inputs: inputs, context: context, scratch: scratch)
+        case .action:
+            throw CutieError("Actions run on the main thread.")
+        }
+    }
+
+    // MARK: - Convert
+
+    static func convert(_ inputs: [URL], to format: Format, context: JobContext, scratch: Scratch) async throws -> JobOutcome {
+        let kinds = Set(inputs.map(FileKind.of))
+        if [.zip, .tar, .gzip].contains(format) && kinds != [.archive] {
+            return JobOutcome(files: [try await archiveAll(inputs, as: format, context: context, scratch: scratch)])
+        }
+        return try await eachFile(inputs, context: context) { input, fileContext in
+            if Format.matching(extension: FileKind.fileExtension(of: input)) == format { return nil }
+            return try await convertOne(input, to: format, context: fileContext, scratch: scratch)
+        }
+    }
+
+    static func convertOne(_ input: URL, to format: Format, context: JobContext, scratch: Scratch) async throws -> URL {
+        let base = Output.baseName(of: input)
+        let ext = FileKind.fileExtension(of: input)
+        let work = try scratch.folder(UUID().uuidString)
+        var target = work.appending(path: "\(base).\(format.fileExtension)")
+
+        switch FileKind.of(input) {
+        case .image:
+            try await ImageConverter.convert(input, to: format, at: target, context: context, scratch: scratch)
+        case .video, .audio:
+            try await MediaConverter.convert(input, to: format, at: target, context: context, scratch: scratch)
+        case .pdf:
+            switch format {
+            case .jpg, .png: target = try PDFConverter.images(input, as: format, in: work, context: context)
+            case .pptx: try await PowerPoint.write(from: input, to: target, scratch: scratch, context: context)
+            default: try await writeDocument(from: input, as: format, to: target, context: context, scratch: scratch)
+            }
+        case .document, .ebook:
+            if ext == "pages", [.pdf, .docx, .epub, .txt, .rtf].contains(format) {
+                try await IWork.export(input, with: .pages, to: format, at: target, toolbox: context.toolbox)
+            } else {
+                try await writeDocument(from: input, as: format, to: target, context: context, scratch: scratch)
+            }
+        case .slides:
+            if format == .jpg || format == .png {
+                target = work.appending(path: "\(base) (\(format.title))", directoryHint: .isDirectory)
+            }
+            try await IWork.export(input, with: .keynote, to: format, at: target, toolbox: context.toolbox)
+        case .spreadsheet:
+            if ["numbers", "xls"].contains(ext), [.pdf, .xlsx, .csv].contains(format) {
+                try await IWork.export(input, with: .numbers, to: format, at: target, toolbox: context.toolbox)
+            } else {
+                let book = try await Spreadsheet.read(input, scratch: scratch, toolbox: context.toolbox)
+                if [.csv, .tsv].contains(format), book.sheets.count > 1 {
+                    target = work.appending(path: "\(base) (\(format.title))", directoryHint: .isDirectory)
+                }
+                try await Spreadsheet.write(book, as: format, to: target, title: base, scratch: scratch, toolbox: context.toolbox)
+            }
+        case .subtitle:
+            try Subtitles.convert(input, to: format, at: target)
+        case .archive:
+            let unpacked = try scratch.folder(UUID().uuidString)
+            try await ArchiveConverter.extract(input, into: unpacked)
+            try await ArchiveConverter.archive(try ArchiveConverter.topLevelItems(in: unpacked), as: format, to: target)
+        case .folder, .other:
+            throw CutieError("Nothing to convert this to.")
+        }
+        return try context.output.place(target, named: target.lastPathComponent, beside: input)
+    }
+
+    @MainActor
+    private static func writeDocument(from input: URL, as format: Format, to target: URL, context: JobContext, scratch: Scratch) async throws {
+        let base = Output.baseName(of: input)
+        var html: String?
+        if ["md", "markdown"].contains(FileKind.fileExtension(of: input)) {
+            html = Markdown.htmlPage(from: try DocumentReader.readText(input), title: base, baseURL: input.deletingLastPathComponent())
+        }
+        let text = try await DocumentReader.read(input, context: context, scratch: scratch)
+        try await DocumentWriter.write(text, html: html, as: format, to: target, title: base, context: context, scratch: scratch)
+    }
+
+    /// One archive of everything dropped: "Folder.zip" for one item, "Archive.zip" for several.
+    /// GZIP of a single regular file is that file gzipped ("notes.txt.gz").
+    static func archiveAll(_ inputs: [URL], as format: Format, context: JobContext, scratch: Scratch) async throws -> URL {
+        let work = try scratch.folder(UUID().uuidString)
+        let single = inputs.count == 1 ? inputs[0] : nil
+        var isFolder: ObjCBool = false
+        if let single, format == .gzip,
+           FileManager.default.fileExists(atPath: single.path, isDirectory: &isFolder), !isFolder.boolValue {
+            let target = work.appending(path: single.lastPathComponent + ".gz")
+            try await ArchiveConverter.gzipFile(single, to: target)
+            return try context.output.place(target, named: target.lastPathComponent, beside: single)
+        }
+        let name = single.map { $0.lastPathComponent } ?? "Archive"
+        let target = work.appending(path: "\(name).\(format.fileExtension)")
+        try await ArchiveConverter.archive(inputs, as: format, to: target)
+        return try context.output.place(target, named: target.lastPathComponent, beside: inputs[0])
+    }
+
+    // MARK: - Tools
+
+    static func runTool(_ tool: Tool, inputs: [URL], context: JobContext, scratch: Scratch) async throws -> JobOutcome {
+        let first = inputs[0]
+        switch tool {
+        case .combineToPDF:
+            let target = scratch.file("Combined.pdf")
+            let images = try inputs.map { url -> (CGImage, Double) in
+                let loaded = try ImageConverter.load(url)
+                return (loaded.image, loaded.dpi)
+            }
+            try ImageConverter.writePDF(images, to: target)
+            return JobOutcome(files: [try context.output.place(target, named: "Combined.pdf", beside: first)])
+        case .mergePDFs:
+            let target = scratch.file("Merged.pdf")
+            try PDFConverter.merge(inputs, to: target)
+            return JobOutcome(files: [try context.output.place(target, named: "Merged.pdf", beside: first)])
+        case .mergeAudio:
+            let target = scratch.file("Merged.m4a")
+            try await MediaTools.mergeAudio(inputs, to: target, context: context)
+            return JobOutcome(files: [try context.output.place(target, named: "Merged.m4a", beside: first)])
+        case .zip:
+            return JobOutcome(files: [try await archiveAll(inputs, as: .zip, context: context, scratch: scratch)])
+        case .checksum:
+            var lines: [String] = []
+            for input in inputs {
+                let hash = try sha256(of: input)
+                lines.append(inputs.count == 1 ? hash : "\(hash)  \(input.lastPathComponent)")
+            }
+            return JobOutcome(message: "SHA-256 copied", copied: lines.joined(separator: "\n"))
+        case .wordCount:
+            return JobOutcome(message: try await wordCount(inputs, context: context, scratch: scratch))
+        case .trimMedia:
+            throw CutieError("Trim opens its own window.")
+        default:
+            var outcome = try await eachFile(inputs, context: context) { input, fileContext in
+                try await toolOne(tool, input: input, context: fileContext, scratch: scratch)
+            }
+            if [.compressImage, .compressPDF, .compressVideo, .compressAudio].contains(tool) {
+                outcome.message = sizeChange(from: inputs, to: outcome.files)
+            }
+            return outcome
+        }
+    }
+
+    static func toolOne(_ tool: Tool, input: URL, context: JobContext, scratch: Scratch) async throws -> URL {
+        let base = Output.baseName(of: input)
+        let work = try scratch.folder(UUID().uuidString)
+        let (_, mediaExt) = MediaTools.fileType(for: input)
+        var target: URL
+
+        switch tool {
+        case .compressImage, .resizeImage, .rotateImage, .flipImage, .grayscale, .cropSquare, .stripMetadata, .removeBackground:
+            let loaded = try ImageConverter.load(input)
+            var format = ImageConverter.outputFormat(for: input, toolbox: context.toolbox)
+            var metadata = loaded.metadata
+            var quality = context.imageQuality
+            let image: CGImage
+            switch tool {
+            case .compressImage: image = loaded.image; quality = min(quality, 0.6)
+            case .resizeImage: image = try ImageTools.halfSize(loaded.image)
+            case .rotateImage: image = try ImageTools.rotated(loaded.image)
+            case .flipImage: image = try ImageTools.flipped(loaded.image)
+            case .grayscale: image = try ImageTools.grayscale(loaded.image)
+            case .cropSquare: image = try ImageTools.squared(loaded.image)
+            case .stripMetadata: image = loaded.image; metadata = [:]
+            default: image = try ImageTools.removingBackground(loaded.image); format = .png; metadata = [:]
+            }
+            target = work.appending(path: "\(base)\(tool.suffix).\(format.fileExtension)")
+            if format == .webp {
+                try await ImageConverter.writeWebP(image, to: target, quality: quality, cwebp: context.toolbox.cwebp, scratch: scratch)
+            } else {
+                try ImageConverter.write(image, as: format, to: target, quality: quality, metadata: metadata, dpi: loaded.dpi)
+            }
+        case .extractText:
+            target = work.appending(path: "\(base).txt")
+            let text = try ImageTools.recognizedText(try ImageConverter.load(input).image)
+            try Data(text.utf8).write(to: target)
+        case .compressPDF:
+            target = work.appending(path: "\(base)\(tool.suffix).pdf")
+            try PDFConverter.compress(input, to: target)
+        case .splitPDF:
+            target = work.appending(path: "\(base) (pages)", directoryHint: .isDirectory)
+            try PDFConverter.split(input, into: target, context: context)
+        case .rotatePDF:
+            target = work.appending(path: "\(base)\(tool.suffix).pdf")
+            try PDFConverter.rotate(input, to: target)
+        case .compressVideo:
+            target = work.appending(path: "\(base)\(tool.suffix).mp4")
+            try await MediaTools.compressVideo(input, to: target, context: context)
+        case .muteVideo:
+            let ext = MediaTools.isNative(input) ? mediaExt : FileKind.fileExtension(of: input)
+            target = work.appending(path: "\(base)\(tool.suffix).\(ext)")
+            try await MediaTools.mute(input, to: target, context: context)
+        case .extractAudio:
+            target = work.appending(path: "\(base).m4a")
+            try await MediaTools.extractAudio(input, to: target, context: context)
+        case .rotateVideo:
+            target = work.appending(path: "\(base)\(tool.suffix).\(MediaTools.isNative(input) ? mediaExt : "mp4")")
+            try await MediaTools.rotate(input, to: target, context: context)
+        case .resizeVideo:
+            target = work.appending(path: "\(base)\(tool.suffix).mp4")
+            try await MediaTools.resize720(input, to: target, context: context)
+        case .snapshot:
+            target = work.appending(path: "\(base).png")
+            try await MediaTools.snapshot(input, to: target, context: context)
+        case .compressAudio:
+            target = work.appending(path: "\(base)\(tool.suffix).m4a")
+            try await MediaTools.compressAudio(input, to: target, context: context)
+        case .normalizeAudio:
+            target = work.appending(path: "\(base)\(tool.suffix).\(FileKind.fileExtension(of: input))")
+            try await MediaTools.normalize(input, to: target, context: context)
+        case .extract:
+            let unpacked = try scratch.folder(UUID().uuidString)
+            try await ArchiveConverter.extract(input, into: unpacked)
+            let items = try ArchiveConverter.topLevelItems(in: unpacked)
+            guard !items.isEmpty else { throw CutieError("This archive is empty.") }
+            if items.count == 1 {
+                target = items[0]
+            } else {
+                target = work.appending(path: base, directoryHint: .isDirectory)
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+                for item in items {
+                    try FileManager.default.moveItem(at: item, to: target.appending(path: item.lastPathComponent))
+                }
+            }
+        default:
+            throw CutieError("\(tool.title) doesn't work on this file.")
+        }
+        return try context.output.place(target, named: target.lastPathComponent, beside: input)
+    }
+
+    // MARK: - Helpers
+
+    /// Runs `body` on each input with progress spread across them. One failure
+    /// doesn't stop the batch; if everything fails, the first error is thrown.
+    static func eachFile(
+        _ inputs: [URL], context: JobContext,
+        _ body: (URL, JobContext) async throws -> URL?
+    ) async throws -> JobOutcome {
+        var outcome = JobOutcome()
+        var firstError: Error?
+        let count = Double(inputs.count)
+        for (index, input) in inputs.enumerated() {
+            try Task.checkCancellation()
+            var fileContext = context
+            let report = context.progress
+            fileContext.progress = { report((Double(index) + min(max($0, 0), 1)) / count) }
+            do {
+                if let file = try await body(input, fileContext) { outcome.files.append(file) }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                firstError = firstError ?? error
+                outcome.failures.append("\(input.lastPathComponent): \(error.localizedDescription)")
+            }
+            report(Double(index + 1) / count)
+        }
+        if outcome.files.isEmpty, let firstError { throw firstError }
+        return outcome
+    }
+
+    static func sha256(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    @MainActor
+    static func wordCount(_ inputs: [URL], context: JobContext, scratch: Scratch) async throws -> String {
+        var words = 0, characters = 0
+        for input in inputs {
+            let text: String
+            if FileKind.of(input) == .subtitle {
+                text = Subtitles.text(Subtitles.parse(try DocumentReader.readText(input)))
+            } else {
+                text = try await DocumentReader.read(input, context: context, scratch: scratch).string
+            }
+            text.enumerateSubstrings(in: text.startIndex..., options: [.byWords, .substringNotRequired]) { _, _, _, _ in words += 1 }
+            characters += text.count
+        }
+        let minutes = max(1, Int((Double(words) / 238).rounded()))
+        let number = IntegerFormatStyle<Int>.number
+        return "\(words.formatted(number)) words · \(characters.formatted(number)) characters · \(minutes) min read"
+    }
+
+    static func sizeChange(from inputs: [URL], to outputs: [URL]) -> String? {
+        func size(_ urls: [URL]) -> Int64 {
+            urls.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0) }
+        }
+        let before = size(inputs), after = size(outputs)
+        guard before > 0, after > 0 else { return nil }
+        let style = ByteCountFormatStyle(style: .file)
+        let percent = Int((Double(before - after) / Double(before) * 100).rounded())
+        let saving = percent > 0 ? " (−\(percent)%)" : ""
+        return "\(before.formatted(style)) → \(after.formatted(style))\(saving)"
+    }
+}

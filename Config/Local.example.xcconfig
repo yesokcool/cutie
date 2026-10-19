@@ -1,0 +1,5 @@
+// Copy this file to Local.xcconfig (git ignores it) and use your own values.
+// See Cutie.xcconfig for what each one does.
+
+CUTIE_TEAM = ABCDE12345
+CUTIE_BUNDLE_ID = com.yourname.cutie

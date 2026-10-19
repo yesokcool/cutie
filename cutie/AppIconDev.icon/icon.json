@@ -1,0 +1,17 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.55686,0.55686,0.60000,1.00000",
+      "srgb:0.98039,0.38824,0.12941,1.00000"
+    ],
+    "orientation" : { "start" : { "x" : 0.5, "y" : 0 }, "stop" : { "x" : 0.5, "y" : 1 } }
+  },
+  "groups" : [
+    {
+      "layers" : [ { "glass" : true, "image-name" : "orange.svg", "name" : "orange" } ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "translucency" : { "enabled" : false, "value" : 0 }
+    }
+  ],
+  "supported-platforms" : { "squares" : "shared" }
+}

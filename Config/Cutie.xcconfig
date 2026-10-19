@@ -1,0 +1,14 @@
+// Signing and app identity for every target and configuration.
+//
+// These are neutral defaults, so a fresh clone builds as is. Put your own
+// values in Local.xcconfig next to this file (copy Local.example.xcconfig).
+// Git ignores it, and it's read last, so it wins.
+
+// Your Apple Developer team ID (Xcode › Settings › Accounts). Empty means no
+// team: Xcode signs the app to run on this Mac only.
+CUTIE_TEAM =
+
+// The bundle id. Cutie DEV adds ".dev"; the tests add ".tests".
+CUTIE_BUNDLE_ID = com.example.cutie
+
+#include? "Local.xcconfig"

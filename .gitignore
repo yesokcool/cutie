@@ -1,0 +1,9 @@
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+# Your own signing values (copy Config/Local.example.xcconfig).
+Config/Local.xcconfig
+# The maintainer's own notes. Not part of Cutie.
+private/
