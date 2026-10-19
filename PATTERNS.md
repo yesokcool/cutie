@@ -153,3 +153,20 @@ out a quarter of the icon. Wrap the path in a 1024×1024 SVG with
 - **`volumeAvailableCapacityForImportantUsage` is 0 on non-boot disks**; fall
   back to `volumeAvailableCapacity`. Tests stand in for an external drive with
   an `hdiutil create` / `attach -nobrowse` disk image.
+
+### From the code review (2026-10-19)
+- **Matroska rejects `mov_text`** ("Subtitle codec mov_text is not supported",
+  exit 178): text subtitles get `-c:s srt` for MKV. MKV keeps each stream's
+  length only in a `DURATION` tag (`HH:MM:SS.nnnnnnnnn`).
+- **A CSV's decimal style comes from its numbers, not its separator**: a
+  semicolon file can use 0.125. LibreOffice's CSV import is comma-only, so
+  Cutie reads CSV/TSV itself and hands LibreOffice an XLSX.
+- **pandoc prints `title` as a heading** in DOCX, ODT and HTML: set only
+  `pagetitle` (HTML) or `title` (EPUB, with `--epub-title-page=false`).
+- **A Live Text glyph can hold a whole line**: cut glyphs by character, never
+  by glyph count. Page numbers must repeat in the same band *and* count with
+  the pages, or a letterhead's year becomes a PAGE field.
+- **Missing GIF trailers are common and harmless**; a cut-off frame isn't.
+  libjpeg skips stray bytes between JPEG segments, and so does `FileIntegrity`.
+- **Swift Testing `-only-testing` IDs need the trailing `()`** for a single
+  test, or nothing runs and xcodebuild still prints TEST SUCCEEDED.

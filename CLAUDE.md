@@ -40,7 +40,7 @@ detection works, and every gotcha so far).
   CommonMark parser → HTML; attributed string → Markdown), `HTML`, `EPUB`,
   `PDFRenderer` (off the main thread, region paper), `PDFConverter` (crop-box renders,
   Ghostscript/Quartz compression, bookmark-keeping merge, Make Searchable),
-  `PDFContent` + `PDFPageLayout` + `PDFToWord` + `WordDocument` (PDF → Word/Excel:
+  `PDFContent` + `PDFPageLayout` (`touchingGroups`: grid buckets + union-find) + `PDFToWord` + `WordDocument` (PDF → Word/Excel:
   the content stream for fonts/images/lines, PDFKit for characters, Vision for
   tables and scans, hand-written WordprocessingML), `PowerPoint` (PDF → PPTX by
   hand), `Spreadsheet` + `Workbook` (typed cells: shown text, value, kind, format
