@@ -17,7 +17,7 @@ nonisolated enum Format: String, CaseIterable, Sendable, Hashable {
     // Spreadsheets
     case xlsx, csv, tsv, ods, numbers
     // Subtitles
-    case srt, vtt
+    case srt, vtt, ass
     // Archives
     case zip, tar, gzip
 
@@ -71,6 +71,7 @@ nonisolated enum Format: String, CaseIterable, Sendable, Hashable {
         case .numbers: "Numbers"
         case .srt: "SRT"
         case .vtt: "VTT"
+        case .ass: "ASS"
         case .zip: "ZIP"
         case .tar: "TAR"
         case .gzip: "GZIP"
@@ -91,7 +92,7 @@ nonisolated enum Format: String, CaseIterable, Sendable, Hashable {
         case .epub: "book"
         case .pptx, .key: "rectangle.on.rectangle"
         case .xlsx, .csv, .tsv, .ods, .numbers: "tablecells"
-        case .srt, .vtt: "captions.bubble"
+        case .srt, .vtt, .ass: "captions.bubble"
         case .zip, .tar, .gzip: "archivebox"
         }
     }

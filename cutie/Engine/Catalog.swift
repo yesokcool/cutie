@@ -71,7 +71,7 @@ nonisolated enum Catalog {
             formats = [.xlsx, .csv, .pdf, .tsv, .ods]
             if toolbox.numbers != nil { formats.append(.numbers) }
         case .subtitle:
-            formats = [.srt, .vtt, .txt]
+            formats = [.srt, .vtt, .ass, .txt]
         case .archive, .folder, .other:
             formats = [.zip, .tar, .gzip]
         }

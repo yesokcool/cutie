@@ -66,11 +66,9 @@ enum DocumentReader {
         NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.black])
     }
 
-    /// UTF-8 first, then whatever encoding Foundation detects.
+    /// Any plain-text file, whatever its encoding (see `TextDecoding`).
     nonisolated static func readText(_ url: URL) throws -> String {
-        if let text = try? String(contentsOf: url, encoding: .utf8) { return text }
-        var encoding = String.Encoding.utf8
-        return try String(contentsOf: url, usedEncoding: &encoding)
+        try TextDecoding.read(url)
     }
 
     /// A Finder text clipping: a property list holding the text as RTF and/or plain text.

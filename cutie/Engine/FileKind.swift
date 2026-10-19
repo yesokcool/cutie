@@ -49,7 +49,7 @@ nonisolated enum FileKind: String, Sendable, Hashable {
         add(.ebook, ["epub"])
         add(.slides, ["pptx", "ppt", "key", "odp"])
         add(.spreadsheet, ["xlsx", "xls", "csv", "tsv", "ods", "numbers"])
-        add(.subtitle, ["srt", "vtt"])
+        add(.subtitle, ["srt", "vtt", "ass", "ssa"])
         add(.archive, ["zip", "tar", "gz", "tgz", "tar.gz", "bz2", "tbz", "tbz2", "tar.bz2", "xz", "txz",
                        "tar.xz", "rar", "7z"])
         return map
