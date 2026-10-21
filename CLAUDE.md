@@ -21,50 +21,7 @@ configuration adds `.dev` ("Cutie Dev", grey-orange icon).
 detection works, and every gotcha so far).
 
 ## Architecture
-- **Engine/** (pure, `nonisolated`, tested): `FileKind` (what a file is, by
-  extension), `Format` / `Tool` / `FileAction` (the slices), `Catalog` (which
-  slices each wheel shows for these files and this Mac's helpers), `Executor`
-  (runs a Convert or Tools slice, `@concurrent`), `Output` + `Scratch` (where
-  results go; `Scratch(near:)` sits on the result's disk, `Output.place` stages
-  cross-disk copies under a hidden name), `Shell` (runs ffmpeg / bsdtar / zip /
-  osascript; `Failure.explain` turns stderr into plain words), `Toolbox`
-  (which helpers are installed), `FileIntegrity` (spots cut-off files by their
-  container structure), `Preferences` (every UserDefaults key).
-- **Converters/**: `ImageConverter` (ImageIO; keeps colour space, depth,
-  HDR gain maps, metadata, animation; lossless JPEG edits), `MediaConverter` (AVFoundation
-  first, `FFmpeg` otherwise: ffprobe first, then a per-stream plan that copies
-  what fits), `MediaChecks` (cut-off inputs, too-short results), `Office`
-  (routes office files to LibreOffice / pandoc / Pages / Numbers, best first),
-  `DocumentReader` / `DocumentWriter` (Cocoa text
-  system; main actor because HTML import uses WebKit), `Markdown` (Foundation's
-  CommonMark parser → HTML; attributed string → Markdown), `HTML`, `EPUB`,
-  `PDFRenderer` (off the main thread, region paper), `PDFConverter` (crop-box renders,
-  Ghostscript/Quartz compression, bookmark-keeping merge, Make Searchable),
-  `PDFContent` + `PDFPageLayout` (`touchingGroups`: grid buckets + union-find) + `PDFToWord` + `WordDocument` (PDF → Word/Excel:
-  the content stream for fonts/images/lines, PDFKit for characters, Vision for
-  tables and scans, hand-written WordprocessingML), `PowerPoint` (PDF → PPTX by
-  hand), `Spreadsheet` + `Workbook` (typed cells: shown text, value, kind, format
-  code; merges) + `CSV` / `XLSX` / `ODS` (written and read directly, streamed) +
-  `NumberFormat` (Excel format codes, `SpreadsheetDate`), `TextDecoding` (any
-  text encoding), `Subtitles` (SRT/VTT/ASS through one neutral form),
-  `ArchiveConverter` (bsdtar, `ditto` for ZIP extraction, 7-Zip for split
-  archives) + `ZipDirectory` (encryption/spanning/sizes from the central
-  directory), `IWork` (Pages/Keynote/Numbers via AppleScript).
-- **Tools/**: `ImageTools` (format-preserving pixel tools, Vision background
-  removal, Live Text via `RecognizeDocumentsRequest` for reading order),
-  `MediaTools` (metadata-keeping AVFoundation paths, two-pass loudnorm, Get
-  Subtitles).
-- **Wheel/**: `DragMonitor` (notices file drags + key taps), `WheelController`
-  (opens/switches/closes), `WheelPanel` + `WheelDropView` (the see-through,
-  non-activating drop target; all events stop there), `WheelView` & parts
-  (SwiftUI, draw only), `WheelGeometry` (pure ring math, tested), `WheelModel`.
-- **Panels/**: `JobCenter` + `JobPillView` (a pill per job at the drop point;
-  drag the result out, click to reveal), `FileDragView` (AppKit drag source
-  hosting SwiftUI), `FloatController` (Float shelves), `TrimController`
-  (QuickTime's trim bar in a window).
-- **Actions/** `ActionRunner` · **App/** `CutieApp` (MenuBarExtra, Settings,
-  Welcome window), `CutieCore` (the running app), `FinderHotKey` (⌃⌥C),
-  `AppIdentity` · **Settings/** `SettingsView`, `WelcomeView`.
+`Engine/` is pure, `nonisolated` and tested; the rest (`Converters/`, `Tools/`, `Wheel/`, `Panels/`, `Actions/`, `App/`, `Design/`, `Settings/`) is what the names say. How drag detection and the drop target work, and every gotcha so far: `PATTERNS.md`.
 
 ## Guardrails
 - **Never touch an original.** Every job writes into its `Scratch` folder and
@@ -169,7 +126,3 @@ Tools/install-mac.sh
 Tools/release-mac.sh
 ```
 Don't launch the app to check it, not even with `open -g` (it still takes focus). `Tools/install-mac.sh` quits a running copy and leaves it closed; the maintainer reopens it. Wheel and drag behaviour can only be checked by hand; the drag/wheel log helps: `/usr/bin/log show --last 10m --predicate 'subsystem == "<bundle id>"'`.
-
-## Docs map
-`README.md` · `PHILOSOPHY.md` · `TODO.md` (+ `DONE.md` once items ship) ·
-`PATTERNS.md` · `CREDITS.md` · `LICENSE` · `private/README.md` (if present).
