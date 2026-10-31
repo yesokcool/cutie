@@ -1,3 +1,5 @@
+This is a heavily AI-assisted project made on a friend's request. Use at your own risk!
+
 # Cutie
 
 ![The Convert wheel for a photo, with PNG highlighted (a test render: the real wheel is Liquid Glass)](docs/wheel.png)
